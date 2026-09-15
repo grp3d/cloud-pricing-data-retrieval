@@ -2,15 +2,15 @@
 AWS pricing data collection logic, decoupled from CLI and Dagster orchestration.
 """
 
+import asyncio
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, List, Optional
 
 import boto3
-import requests
+import httpx
 from botocore.exceptions import ClientError, CredentialRetrievalError, NoCredentialsError
 
 logger = logging.getLogger(__name__)
@@ -158,46 +158,50 @@ class PricingDataManager:
                 raise ValueError(f"Invalid service code '{service_code}'.")
             raise ValueError(f"Error fetching price list for {service_code}: {e}")
 
-    def download_pricing_data(
+    async def _download_pricing_data_async(
         self, price_list_arn: str, service_code: str, file_format: str
     ) -> Optional[str]:
         try:
-            url_response = self.pricing_client.get_price_list_file_url(
-                PriceListArn=price_list_arn, FileFormat=file_format
+            url_response = await asyncio.to_thread(
+                self.pricing_client.get_price_list_file_url,
+                PriceListArn=price_list_arn,
+                FileFormat=file_format,
             )
             url = url_response["Url"]
             filename = os.path.join(
                 self.output_dir, f"pricing-{service_code}-{self.region}.{file_format}"
             )
 
+            timeout = httpx.Timeout(30.0, connect=5.0)
             for attempt in range(3):
                 try:
-                    r = requests.get(url, stream=True, timeout=(5, 30))
-                    r.raise_for_status()
-                    with open(filename, "wb") as f:
-                        for chunk in r.iter_content(chunk_size=8192):
-                            if chunk:
-                                f.write(chunk)
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        async with client.stream("GET", url) as r:
+                            r.raise_for_status()
+                            with open(filename, "wb") as f:
+                                async for chunk in r.aiter_bytes(chunk_size=8192):
+                                    if chunk:
+                                        f.write(chunk)
                     self._log(f"Downloaded pricing for {service_code} → {filename}")
                     return filename
-                except requests.Timeout:
+                except httpx.TimeoutException:
                     if attempt == 2:
                         self._error(
                             f"Timeout downloading {service_code} after 3 attempts"
                         )
                         return None
-                except requests.RequestException as e:
+                except httpx.HTTPError as e:
                     self._error(f"Request error downloading {service_code}: {e}")
                     return None
         except Exception as e:
             self._error(f"Unexpected error processing {service_code}: {e}")
             return None
 
-    def _process_single_service(
+    async def _process_single_service_async(
         self, service_code: str, output_format: str
     ) -> tuple[str, Optional[str], Optional[str]]:
         try:
-            arn = self.get_price_list_arn(service_code)
+            arn = await asyncio.to_thread(self.get_price_list_arn, service_code)
             if not arn:
                 return (
                     service_code,
@@ -205,14 +209,16 @@ class PricingDataManager:
                     f"{service_code} (no pricing data available in {self.region})",
                 )
 
-            path = self.download_pricing_data(arn, service_code, output_format)
+            path = await self._download_pricing_data_async(
+                arn, service_code, output_format
+            )
             if path:
                 return service_code, path, None
             return service_code, None, f"{service_code} (download failed)"
         except ValueError as e:
             return service_code, None, str(e)
 
-    def process_service_codes(
+    async def _process_service_codes_async(
         self,
         service_codes: List[str],
         output_format: str,
@@ -224,25 +230,29 @@ class PricingDataManager:
         worker_count = max(1, max_raw_download_workers)
         total = len(service_codes)
         self._log(
-            f"Starting raw downloads for {total} service(s) with {worker_count} worker(s)"
+            f"Starting raw downloads for {total} service(s) with {worker_count} concurrent worker(s)"
         )
 
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            future_map = {
-                executor.submit(
-                    self._process_single_service, code, output_format
-                ): code
-                for code in service_codes
-            }
+        semaphore = asyncio.Semaphore(worker_count)
+        progress_lock = asyncio.Lock()
+        completed = 0
 
-            for i, future in enumerate(as_completed(future_map), 1):
-                code = future_map[future]
-                self._log(f"[{i}/{total}] Completed {code}")
-                _, path, error = future.result()
-                if path:
-                    downloaded_files.append(path)
-                elif error:
-                    failed_services.append(error)
+        async def _bounded(code: str) -> tuple[str, Optional[str], Optional[str]]:
+            nonlocal completed
+            async with semaphore:
+                result = await self._process_single_service_async(code, output_format)
+            async with progress_lock:
+                completed += 1
+                self._log(f"[{completed}/{total}] Completed {code}")
+            return result
+
+        results = await asyncio.gather(*(_bounded(code) for code in service_codes))
+
+        for _, path, error in results:
+            if path:
+                downloaded_files.append(path)
+            elif error:
+                failed_services.append(error)
 
         if failed_services:
             self._warn(f"No pricing data found for: {', '.join(failed_services)}")
@@ -343,10 +353,12 @@ def run_pricing_job(request: PricingJobRequest) -> PricingJobResult:
         manager.validate_service_codes(service_codes)
 
     try:
-        downloaded, failed = manager.process_service_codes(
-            service_codes,
-            request.output_format,
-            request.max_raw_download_workers,
+        downloaded, failed = asyncio.run(
+            manager._process_service_codes_async(
+                service_codes,
+                request.output_format,
+                request.max_raw_download_workers,
+            )
         )
     except ValueError as e:
         result.errors.append(str(e))

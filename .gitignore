@@ -1,0 +1,82 @@
+# ==========================================
+# 1. Python Byte-compiled / Optimized Files
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ==========================================
+# 2. Virtual Environments & Dependencies
+# ==========================================
+# Exclude auto-generated environments
+.venv/
+venv/
+ENV/
+env/
+pythonenv*/
+__pypackages__/
+
+# Package manager resource/dependency directories
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+
+# ==========================================
+# 3. Distribution, Packaging, and Builds
+# ==========================================
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ==========================================
+# 4. Sensitive Information & Credentials
+# ==========================================
+# NEVER commit your secrets, API keys, or credentials
+.env
+.env.*
+.secrets
+secrets.toml
+
+# ==========================================
+# 5. Dagster runtime artifacts
+# ==========================================
+# Ephemeral DAGSTER_HOME dirs created by `dagster dev` when unset, plus its log file
+.tmp_dagster_home_*/
+dagster.log
+
+# ==========================================
+# 6. OS & IDE Specific (Optional but Recommended)
+# ==========================================
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# VS Code & PyCharm
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
