@@ -90,10 +90,15 @@ def transform_to_parquet(
     parquet_root = os.path.join(_data_root(), "pricing_aws", "parquet")
     snap_date = config.snapshot_date or _snapshot_date()
 
+    # raw_dir may be shared across regions in a multi-region run (schedule
+    # fans out with one raw_timestamp for all regions), so only pick up this
+    # job's own region's downloads — not every region's files sitting in
+    # the same directory.
+    region_suffix = f"-{config.region}.json"
     json_files = [
         os.path.join(raw_dir, file_name)
         for file_name in os.listdir(raw_dir)
-        if file_name.endswith(".json")
+        if file_name.endswith(region_suffix)
     ]
     if not json_files:
         raise RuntimeError(f"No JSON files found in {raw_dir}")

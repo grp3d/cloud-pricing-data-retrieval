@@ -90,6 +90,13 @@ def _parse_products(
                 }
             )
 
+        if region_code and region_code != region:
+            # AWS's per-region price list file is not reliably scoped to just
+            # this region (observed heavily on AmazonEC2); drop rows that
+            # carry an explicit regionCode belonging to another region so
+            # this region's partition only contains this region's products.
+            continue
+
         product_rows.append(
             {
                 "snapshot_date": snapshot_date,
