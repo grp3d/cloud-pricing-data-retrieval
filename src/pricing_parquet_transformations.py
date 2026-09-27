@@ -7,11 +7,20 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+from src.aws_regions import resolve_regions
+from src.partition_markers import (
+    FinalizeStatus,
+    finalize_partition,
+    invalidate_region,
+    mark_region_complete,
+    region_run_lock,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +32,14 @@ class TransformRequest:
     region: str
     snapshot_date: str = ""
     log_callback: Optional[Callable[[str], None]] = None
+    # Regions that must all finish a table before its _SUCCESS is written.
+    expected_regions: Optional[List[str]] = None
 
     def __post_init__(self) -> None:
         if not self.snapshot_date:
             self.snapshot_date = datetime.now().strftime("%Y-%m-%d")
+        if self.expected_regions is None:
+            self.expected_regions = resolve_regions()
 
 
 @dataclass
@@ -37,6 +50,9 @@ class TransformResult:
     tables_skipped: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     success: bool = False
+    marker_outcomes: Dict[str, str] = field(default_factory=dict)
+    marker_errors: List[str] = field(default_factory=list)
+    parse_failed_files: List[str] = field(default_factory=list)
 
 
 def _parse_products(
@@ -178,6 +194,67 @@ def _write_parquet_table(
     return out_path
 
 
+def _write_table_with_markers(
+    request: TransformRequest,
+    result: TransformResult,
+    table_name: str,
+    df: pd.DataFrame,
+    _log: Callable[[str], None],
+) -> None:
+    """Invalidate, write, then mark and finalize one table for this region."""
+    try:
+        invalidate_region(
+            request.parquet_root, table_name, request.snapshot_date, request.region
+        )
+    except OSError as e:
+        msg = f"Failed invalidating {table_name}: {e}"
+        _log(f"ERROR: {msg}")
+        result.errors.append(msg)
+        result.marker_errors.append(f"Marker error for {table_name}: {e}")
+        result.marker_outcomes[table_name] = "SKIPPED (invalidate failed)"
+        return
+
+    if df.empty:
+        _log(f"No rows for {table_name}, skipping.")
+        result.tables_skipped.append(table_name)
+    else:
+        try:
+            out_path = _write_parquet_table(
+                df, table_name, request.parquet_root, request.snapshot_date, request.region
+            )
+            _log(f"Wrote {table_name}: {len(df):,} rows → {out_path}")
+            result.tables_written.append(table_name)
+        except Exception as e:
+            msg = f"Failed writing {table_name}: {e}"
+            _log(f"ERROR: {msg}")
+            result.errors.append(msg)
+            result.marker_outcomes[table_name] = "SKIPPED (write failed)"
+            return
+
+    if result.parse_failed_files:
+        # Some of this region's input is missing, so its data may be incomplete (FR-016).
+        result.marker_outcomes[table_name] = "SKIPPED (input parse errors)"
+        return
+
+    try:
+        mark_region_complete(
+            request.parquet_root, table_name, request.snapshot_date, request.region
+        )
+        outcome = finalize_partition(
+            request.parquet_root, table_name, request.snapshot_date, request.expected_regions
+        )
+    except OSError as e:
+        result.marker_errors.append(f"Marker error for {table_name}: {e}")
+        return
+
+    if outcome.status is FinalizeStatus.INCOMPLETE:
+        result.marker_outcomes[table_name] = (
+            f"INCOMPLETE (missing: {', '.join(outcome.missing_regions)})"
+        )
+    else:
+        result.marker_outcomes[table_name] = outcome.status.value
+
+
 def transform_pricing_to_parquet(request: TransformRequest) -> TransformResult:
     _log = request.log_callback or (lambda msg: logger.info(msg))
     result = TransformResult(
@@ -205,6 +282,7 @@ def transform_pricing_to_parquet(request: TransformRequest) -> TransformResult:
             msg = f"Skipping {file_path}: {e}"
             _log(f"WARNING: {msg}")
             result.errors.append(msg)
+            result.parse_failed_files.append(file_path)
             continue
 
         _parse_products(
@@ -230,22 +308,16 @@ def transform_pricing_to_parquet(request: TransformRequest) -> TransformResult:
         "price_fact": pd.DataFrame(price_fact_rows),
     }
 
-    for table_name, df in table_data.items():
-        if df.empty:
-            _log(f"No rows for {table_name}, skipping.")
-            result.tables_skipped.append(table_name)
-            continue
+    if result.parse_failed_files:
+        _log(
+            f"WARNING: Region {request.region} not marked complete: "
+            f"{len(result.parse_failed_files)} input file(s) failed to parse"
+        )
 
-        try:
-            out_path = _write_parquet_table(
-                df, table_name, request.parquet_root, request.snapshot_date, request.region
-            )
-            _log(f"Wrote {table_name}: {len(df):,} rows → {out_path}")
-            result.tables_written.append(table_name)
-        except Exception as e:
-            msg = f"Failed writing {table_name}: {e}"
-            _log(f"ERROR: {msg}")
-            result.errors.append(msg)
+    # One run at a time per (date, region) writes data and markers (FR-017).
+    with region_run_lock(request.parquet_root, request.snapshot_date, request.region):
+        for table_name, df in table_data.items():
+            _write_table_with_markers(request, result, table_name, df, _log)
 
     result.success = bool(result.tables_written)
     return result

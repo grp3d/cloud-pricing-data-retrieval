@@ -53,6 +53,31 @@ region its `PricingDownloadConfig` says. Three ways to launch it:
   (`default_status=DefaultSensorStatus.STOPPED`) so it never fires on its own — "Test Sensor" works
   regardless of whether it's turned on.
 
+### Partition success markers
+
+Each table's snapshot partition gets an empty `_SUCCESS` file once it is complete:
+
+```text
+<data_root>/pricing_aws/parquet/<table>/snapshot_date=<YYYY-MM-DD>/_SUCCESS
+```
+
+- **For consumers**: wait for `_SUCCESS` before reading a table's partition. If it's there, every
+  configured region has finished writing that table for that date. If it isn't, the partition is
+  still being written, a region failed, or the table had no rows in any region.
+- **When it's written**: only once every region in the configured list (`PRICING_REGIONS` /
+  `PricingRegionsResource`, read at the time of the check) has written the table. Whichever
+  region's run finishes last writes it. A region whose run fails, or whose input pricing files
+  fail to parse, holds the marker back.
+- **Re-running a failed region**: launch `pricing_pipeline_single_region` for that region with the
+  same `snapshot_date` (Launchpad → `transform_to_parquet` config). When it succeeds and all other
+  regions are already done, it writes `_SUCCESS`. Re-running a region also removes the existing
+  `_SUCCESS` before it rewrites any data, and restores it on success.
+- **Internal files**: `region=<R>/_REGION_COMPLETE` records that one region finished a table, and
+  `<parquet_root>/.locks/` holds lock files that coordinate concurrent runs. Neither is meant for
+  consumers, and readers skip files and folders starting with `_` or `.`.
+- Runs never touch other dates' partitions, and partitions written before this feature have no
+  markers.
+
 ## Testing
 
 ```bash
@@ -60,5 +85,6 @@ pip install pytest pytest-asyncio httpx   # already in requirements.txt
 pytest
 ```
 
-- `tests/unit/` — region list resolution, schedule fan-out/cadence/tagging, async download core
-- `tests/integration/` — multi-region failure isolation
+- `tests/unit/` — region list resolution, schedule fan-out/cadence/tagging, async download core,
+  partition markers and locks
+- `tests/integration/` — multi-region failure isolation, partition success marker lifecycle

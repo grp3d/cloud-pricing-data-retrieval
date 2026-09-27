@@ -10,7 +10,7 @@ from src.dagster_app.schedules.pricing_schedules import build_region_run_request
 @sensor(
     job=pricing_pipeline_single_region,
     default_status=DefaultSensorStatus.STOPPED,
-    minimum_interval_seconds=3600,
+    minimum_interval_seconds=86400,
     description=(
         "Manual, on-demand trigger for the configured-regions pricing pipeline. "
         "Launches one run per configured region — the same fan-out as "

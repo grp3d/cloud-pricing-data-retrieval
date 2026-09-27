@@ -13,6 +13,7 @@ import json
 import os
 
 import pandas as pd
+import pytest
 
 from src.pricing_parquet_transformations import TransformRequest, transform_pricing_to_parquet
 
@@ -129,3 +130,155 @@ def test_rows_without_region_code_default_to_target_region(tmp_path):
     )
     assert set(product_dim["sku"]) == {"SKU-TRANSFER"}
     assert set(product_dim["region_code"]) == {"eu-west-1"}
+
+
+def test_marker_outcomes_reported_for_every_table(tmp_path):
+    json_file = tmp_path / "pricing-AmazonEC2-eu-west-1.json"
+    _write_json(
+        str(json_file),
+        {
+            "SKU-LOCAL": {
+                "productFamily": "Compute Instance",
+                "attributes": {
+                    "servicecode": "AmazonEC2",
+                    "servicename": "Amazon EC2",
+                    "regionCode": "eu-west-1",
+                    "location": "EU (Ireland)",
+                    "locationType": "AWS Region",
+                    "instanceType": "m5.large",
+                },
+            },
+        },
+    )
+
+    request = TransformRequest(
+        json_files=[str(json_file)],
+        parquet_root=str(tmp_path / "parquet"),
+        region="eu-west-1",
+        snapshot_date="2026-09-15",
+        expected_regions=["eu-west-1"],
+    )
+    result = transform_pricing_to_parquet(request)
+
+    assert set(result.marker_outcomes) == {
+        "service_dim",
+        "region_dim",
+        "product_dim",
+        "product_attribute",
+        "price_fact",
+    }
+    for table in ["service_dim", "region_dim", "product_dim", "product_attribute"]:
+        assert result.marker_outcomes[table] == "WRITTEN"
+    # _write_json writes no terms, so price_fact has no rows in its only region.
+    assert result.marker_outcomes["price_fact"] == "NO_DATA"
+    assert result.marker_errors == []
+
+
+def _write_single_region_input(tmp_path, region="eu-west-1"):
+    json_file = tmp_path / f"pricing-AmazonEC2-{region}.json"
+    _write_json(
+        str(json_file),
+        {
+            "SKU-LOCAL": {
+                "productFamily": "Compute Instance",
+                "attributes": {
+                    "servicecode": "AmazonEC2",
+                    "servicename": "Amazon EC2",
+                    "regionCode": region,
+                    "location": "EU (Ireland)",
+                    "locationType": "AWS Region",
+                    "instanceType": "m5.large",
+                },
+            },
+        },
+    )
+    return json_file
+
+
+def test_marker_failure_recorded(tmp_path, monkeypatch):
+    json_file = _write_single_region_input(tmp_path)
+
+    def fail(*args, **kwargs):
+        raise PermissionError("read-only partition")
+
+    monkeypatch.setattr("src.pricing_parquet_transformations.mark_region_complete", fail)
+    result = transform_pricing_to_parquet(
+        TransformRequest(
+            json_files=[str(json_file)],
+            parquet_root=str(tmp_path / "parquet"),
+            region="eu-west-1",
+            snapshot_date="2026-09-15",
+            expected_regions=["eu-west-1"],
+        )
+    )
+
+    assert result.success is True
+    assert result.marker_errors
+    assert all("read-only partition" in err for err in result.marker_errors)
+
+
+def _run_transform_op(tmp_path, monkeypatch, raw_files):
+    from dagster import build_op_context
+
+    from src.dagster_app.assets.pricing_assets import TransformConfig, transform_to_parquet
+    from src.dagster_app.resources import PricingRegionsResource
+
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    for name, content in raw_files.items():
+        (raw_dir / name).write_text(content)
+    monkeypatch.setattr(
+        "src.dagster_app.assets.pricing_assets._data_root", lambda: str(tmp_path / "data")
+    )
+    context = build_op_context(
+        resources={"pricing_regions": PricingRegionsResource(regions=["eu-west-1"])}
+    )
+    return transform_to_parquet(
+        context,
+        raw_dir=str(raw_dir),
+        config=TransformConfig(region="eu-west-1", snapshot_date="2026-09-15"),
+    )
+
+
+def test_transform_op_raises_on_marker_errors(tmp_path, monkeypatch):
+    good = _write_single_region_input(tmp_path).read_text()
+
+    def fail(*args, **kwargs):
+        raise PermissionError("read-only partition")
+
+    monkeypatch.setattr("src.pricing_parquet_transformations.mark_region_complete", fail)
+    with pytest.raises(RuntimeError, match="Failed to write partition markers"):
+        _run_transform_op(
+            tmp_path, monkeypatch, {"pricing-AmazonEC2-eu-west-1.json": good}
+        )
+
+
+def test_transform_op_raises_on_parse_errors(tmp_path, monkeypatch):
+    good = _write_single_region_input(tmp_path).read_text()
+
+    with pytest.raises(RuntimeError, match="failed to parse"):
+        _run_transform_op(
+            tmp_path,
+            monkeypatch,
+            {
+                "pricing-AmazonEC2-eu-west-1.json": good,
+                "pricing-AmazonS3-eu-west-1.json": "{not json",
+            },
+        )
+
+    partition = tmp_path / "data" / "pricing_aws" / "parquet" / "product_dim"
+    region_dir = partition / "snapshot_date=2026-09-15" / "region=eu-west-1"
+    assert (region_dir / "part-0.parquet").exists()
+    assert not (region_dir / "_REGION_COMPLETE").exists()
+
+
+def test_transform_op_succeeds_and_marks_partition(tmp_path, monkeypatch):
+    good = _write_single_region_input(tmp_path).read_text()
+
+    _run_transform_op(tmp_path, monkeypatch, {"pricing-AmazonEC2-eu-west-1.json": good})
+
+    marker = (
+        tmp_path / "data" / "pricing_aws" / "parquet" / "product_dim"
+        / "snapshot_date=2026-09-15" / "_SUCCESS"
+    )
+    assert marker.is_file()
