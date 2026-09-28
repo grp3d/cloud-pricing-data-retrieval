@@ -1,0 +1,74 @@
+{
+ "formatVersion": "v1.0",
+ "offerCode": "AmazonEC2",
+ "products": {
+  "EC2-EUWEST1-M5L": {
+   "attributes": {
+    "instanceType": "m5.large",
+    "location": "EU (Ireland)",
+    "locationType": "AWS Region",
+    "regionCode": "eu-west-1",
+    "servicecode": "AmazonEC2",
+    "servicename": "Amazon Elastic Compute Cloud",
+    "vcpu": "2"
+   },
+   "productFamily": "Compute Instance",
+   "sku": "EC2-EUWEST1-M5L"
+  },
+  "EC2-EUWEST1-T3M": {
+   "attributes": {
+    "instanceType": "t3.micro",
+    "location": "EU (Ireland)",
+    "locationType": "AWS Region",
+    "regionCode": "eu-west-1",
+    "servicecode": "AmazonEC2",
+    "servicename": "Amazon Elastic Compute Cloud",
+    "vcpu": "2"
+   },
+   "productFamily": "Compute Instance",
+   "sku": "EC2-EUWEST1-T3M"
+  }
+ },
+ "publicationDate": "2026-09-01T00:00:00Z",
+ "terms": {
+  "OnDemand": {
+   "EC2-EUWEST1-M5L": {
+    "EC2-EUWEST1-M5L.JRTCKXETXF": {
+     "offerTermCode": "JRTCKXETXF",
+     "priceDimensions": {
+      "EC2-EUWEST1-M5L.JRTCKXETXF.6YS6EN2CT7": {
+       "beginRange": "0",
+       "description": "m5.large on demand",
+       "endRange": "Inf",
+       "pricePerUnit": {
+        "USD": "0.0960000000"
+       },
+       "unit": "Hrs"
+      }
+     },
+     "sku": "EC2-EUWEST1-M5L",
+     "termAttributes": {}
+    }
+   },
+   "EC2-EUWEST1-T3M": {
+    "EC2-EUWEST1-T3M.JRTCKXETXF": {
+     "offerTermCode": "JRTCKXETXF",
+     "priceDimensions": {
+      "EC2-EUWEST1-T3M.JRTCKXETXF.6YS6EN2CT7": {
+       "beginRange": "0",
+       "description": "t3.micro on demand",
+       "endRange": "Inf",
+       "pricePerUnit": {
+        "USD": "0.0104000000"
+       },
+       "unit": "Hrs"
+      }
+     },
+     "sku": "EC2-EUWEST1-T3M",
+     "termAttributes": {}
+    }
+   }
+  }
+ },
+ "version": "20260901000000"
+}

@@ -1,0 +1,5 @@
+-r requirements.txt
+pytest>=8.0.0          # Test runner
+pytest-asyncio>=0.23.0 # asyncio support for pytest
+moto[s3,sns,sqs,events,cloudwatch]>=5  # AWS service emulation for offline tests
+jsonschema>=4          # Contract schema validation (constitution IV)

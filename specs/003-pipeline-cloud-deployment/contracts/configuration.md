@@ -8,6 +8,7 @@ All settings come from configuration and are never hard-coded (FR-035). The cont
 |---|---|---|---|
 | `PIPELINE_STORAGE_URI` | `file://$DATA_DIRECTORY_ROOT/pipeline` (else `file://./pipeline`) | Must be `file://` or `s3://`. | FR-008 |
 | `PIPELINE_PROVIDER` | `aws` | `[a-z0-9]+` | FR-010 |
+| `PIPELINE_ENVIRONMENT` | `local` (the task definition sets the stack's environment, e.g. `prod`) | `[a-z0-9-]{1,32}`. Used in alert subjects. | FR-026 |
 | `PRICING_REGIONS` | the 7 defaults in `src/aws_regions.py` | A comma-separated list of region codes. | FR-003 |
 | `MAX_RAW_DOWNLOAD_WORKERS` | `2` | ≥ 1. Concurrent file downloads per region. | |
 | `TRANSFORM_CONCURRENCY` | `1` | ≥ 1. Parallel region transforms (memory-bound, see research R1). | |
@@ -38,18 +39,19 @@ The ad hoc CLI (`src.aws_pricing_cli`) keeps using `DATA_DIRECTORY_ROOT` only.
 | `PROVIDERS` | `aws` | Comma-separated. One `latest.json` is checked per provider. |
 | `MAX_SNAPSHOT_AGE_DAYS` | `8` | FR-027 |
 | `ALERT_TOPIC_ARN` | from stack | |
+| `ENVIRONMENT` | from stack | Used in the alert subject. |
 
 ## OpenTofu variables
 
 ### `infra/bootstrap`
 
-| Variable | Default | Notes |
-|---|---|---|
-| `aws_region` | `us-east-1` | |
-| `github_repository` | required | `owner/cloud-pricing-data-retrieval`. Scopes the OIDC trust. |
-| `state_bucket_name` | `cloud-pricing-shared-tfstate-<account_id>` | An account singleton (constitution V), tagged `environment=shared`. |
-| `environments` | `["prod"]` | Creates one set of CI roles per environment: `cloud-pricing-gha-{plan,apply,run}-<env>`. |
-| `budget_warning_usd` / `budget_alert_usd` | `15` / `25` | FR-030 |
+| Variable | Default                              | Notes |
+|---|--------------------------------------|---|
+| `aws_region` | `us-east-1`                          | |
+| `github_repository` | required                             | `owner/cloud-pricing-data-retrieval`. Scopes the OIDC trust. |
+| `state_bucket_name` | required                             | An account singleton (constitution V), tagged `environment=shared`. Owner-chosen; never contains the account ID. |
+| `environments` | `["prod"]`                           | Creates one set of CI roles per environment: `cloud-pricing-gha-{plan,apply,run}-<env>`. |
+| `budget_warning_usd` / `budget_alert_usd` | `10` / `20`                          | FR-030 |
 | `budget_email` | required (a secret, never committed) | |
 
 ### `infra/data` and `infra/pipeline` (shared via `infra/envs/<env>.tfvars`)
@@ -58,7 +60,8 @@ The ad hoc CLI (`src.aws_pricing_cli`) keeps using `DATA_DIRECTORY_ROOT` only.
 |---|---|---|---|
 | `environment` | required (`dev`\|`qa`\|`prod`) | both | Namespaces every resource: `cloud-pricing-<component>-<env>` (FR-032). |
 | `aws_region` | `us-east-1` | both | |
-| `providers` | `["aws"]` | both | One raw lifecycle rule per provider. Also passed to the watchdog. |
+| `data_bucket_name` | required (prod: `cloud-pricing-data-prod-g08a9i`) | both | Owner-chosen, never contains the account ID. Keep the `cloud-pricing-data-<env>-` prefix, which the CI deploy role's permissions match. |
+| `pricing_providers` | `["aws"]` | both | One raw lifecycle rule per provider. Also passed to the watchdog. |
 | `raw_retention_days` | `30` | both | Feeds the S3 lifecycle rule and `RAW_RETENTION_DAYS`. |
 | `noncurrent_version_retention_days` | `7` | data | A safety net for accidental deletes. |
 | `roles_anywhere_ca_bundle_pem` | `""` | data | The **public** certificate(s) of the owner's CA, PEM. If empty, no Roles Anywhere resources are created. |
@@ -78,6 +81,7 @@ The ad hoc CLI (`src.aws_pricing_cli`) keeps using `DATA_DIRECTORY_ROOT` only.
 | `alert_email` | required (the GitHub secret `TF_VAR_alert_email`) | pipeline | Needs a one-time click on the SNS confirmation link. |
 | `max_snapshot_age_days` | `8` | pipeline | Watchdog window. |
 | `log_retention_days` | `30` | pipeline | FR-029 |
+| `state_bucket_name` | required | pipeline | The bucket in `envs/<env>.backend.hcl`. Used to read the data stack's outputs (the off-AWS writer role). |
 
 **Outputs used by other repos and workflows**:
 - **`data`**: `data_bucket_name` and `data_read_policy_arn`, for the web app. It also outputs `roles_anywhere_trust_anchor_arn`, plus `writer_role_arn` / `writer_profile_arn` and `reader_role_arn` / `reader_profile_arn`, for off-AWS machines.

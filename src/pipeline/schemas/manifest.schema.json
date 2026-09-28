@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cloud-pricing/cloud-pricing-data-retrieval/contracts/manifest/1.0",
+  "title": "Snapshot Manifest",
+  "description": "Authoritative description of one revision of a pricing snapshot. Location: <root>/<provider>/manifests/<snapshot_date>/manifest.json (current) and <root>/<provider>/manifests/<snapshot_date>/revisions/<NNNN>.json (immutable history). This repo is authoritative; cloud-pricing-app consumes it. Consumers MUST reject a manifest whose manifest_version MAJOR or any table schema_version they do not support, MUST find data files only through this document (never by listing directories), and MUST skip manifests whose status is not 'succeeded' unless they explicitly handle partial data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version", "provider", "snapshot_date", "run_id", "revision", "previous_revision",
+    "created_at", "origin", "status", "regions", "run", "raw", "tables", "purged"
+  ],
+  "properties": {
+    "manifest_version": { "type": "string", "pattern": "^1\\.[0-9]+$", "description": "Contract version MAJOR.MINOR. MINOR bumps only add optional fields." },
+    "provider": { "type": "string", "pattern": "^[a-z0-9]+$", "examples": ["aws"] },
+    "snapshot_date": { "type": "string", "format": "date" },
+    "run_id": { "$ref": "#/$defs/run_id" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "previous_revision": { "type": ["integer", "null"], "minimum": 1 },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "origin": { "enum": ["pipeline", "backfill"] },
+    "status": { "enum": ["succeeded", "partial", "failed", "purged"] },
+    "regions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "succeeded", "failed"],
+      "properties": {
+        "requested": { "type": "array", "items": { "$ref": "#/$defs/region" }, "minItems": 1, "uniqueItems": true },
+        "succeeded": { "type": "array", "items": { "$ref": "#/$defs/region" }, "uniqueItems": true },
+        "failed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["region", "reason", "attempts"],
+            "properties": {
+              "region": { "$ref": "#/$defs/region" },
+              "reason": { "type": "string", "maxLength": 500 },
+              "attempts": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger", "mode", "host", "started_at", "ended_at", "pipeline_version", "region_results"],
+      "properties": {
+        "trigger": { "enum": ["scheduled", "manual", "backfill"] },
+        "mode": { "enum": ["full", "regions", "transform-only", "backfill", "retention-purge"] },
+        "host": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$", "description": "Where the run executed: 'aws-ecs' for Fargate, else PIPELINE_HOST_LABEL (e.g. 'home-server'). Informational only; consumers MUST NOT change behavior based on it (FR-056)." },
+        "started_at": { "$ref": "#/$defs/timestamp" },
+        "ended_at": { "$ref": "#/$defs/timestamp" },
+        "pipeline_version": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["git_sha", "image_tag"],
+          "properties": { "git_sha": { "type": "string" }, "image_tag": { "type": "string" } }
+        },
+        "region_results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["region", "outcome", "attempts"],
+            "properties": {
+              "region": { "$ref": "#/$defs/region" },
+              "outcome": { "enum": ["succeeded", "failed", "skipped"] },
+              "reason": { "type": "string", "maxLength": 500 },
+              "attempts": { "type": "integer", "minimum": 0 },
+              "services_downloaded": { "type": "integer", "minimum": 0 },
+              "services_without_price_list": { "type": "integer", "minimum": 0 },
+              "unparseable_prices": { "type": "integer", "minimum": 0, "description": "Price values present in the source but not numeric; stored as null, never estimated (constitution Principle I)." }
+            }
+          }
+        }
+      }
+    },
+    "raw": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/region" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["location", "file_count", "bytes", "stored_at", "purge_after"],
+            "properties": {
+              "location": { "type": "string", "pattern": "^[a-z0-9]+/raw/[0-9]{4}-[0-9]{2}-[0-9]{2}/[a-z0-9-]+/[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}/$" },
+              "file_count": { "type": "integer", "minimum": 1 },
+              "bytes": { "type": "integer", "minimum": 0 },
+              "stored_at": { "$ref": "#/$defs/timestamp" },
+              "purge_after": { "type": "string", "format": "date" }
+            }
+          }
+        }
+      ]
+    },
+    "tables": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service_dim": { "$ref": "#/$defs/table" },
+        "product_dim": { "$ref": "#/$defs/table" },
+        "product_attribute": { "$ref": "#/$defs/table" },
+        "region_dim": { "$ref": "#/$defs/table" },
+        "price_fact": { "$ref": "#/$defs/table" }
+      }
+    },
+    "purged": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["purged_at", "reason"],
+          "properties": {
+            "purged_at": { "$ref": "#/$defs/timestamp" },
+            "reason": { "enum": ["retention-thinning"] }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "purged" } } },
+      "then": { "properties": { "purged": { "type": "object" }, "tables": { "maxProperties": 0 } } },
+      "else": { "properties": { "purged": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "succeeded" } } },
+      "then": { "properties": { "regions": { "properties": { "failed": { "maxItems": 0 } } }, "tables": { "minProperties": 5 } } }
+    },
+    {
+      "if": { "properties": { "origin": { "const": "backfill" } } },
+      "then": { "properties": { "raw": { "type": "null" } } }
+    }
+  ],
+  "$defs": {
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]+$" },
+    "run_id": { "type": "string", "pattern": "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}$" },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "row_count", "regions"],
+      "properties": {
+        "schema_version": { "type": "integer", "minimum": 1 },
+        "row_count": { "type": "integer", "minimum": 0 },
+        "regions": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/region" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["written_by_run", "row_count", "files"],
+            "properties": {
+              "written_by_run": { "$ref": "#/$defs/run_id" },
+              "row_count": { "type": "integer", "minimum": 0 },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "bytes", "sha256", "row_count"],
+                  "properties": {
+                    "path": { "type": "string", "pattern": "^[a-z0-9]+/parquet/[a-z_]+/snapshot_date=[0-9]{4}-[0-9]{2}-[0-9]{2}/region=[a-z0-9-]+/part-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}(-[0-9]+)?\\.parquet$" },
+                    "bytes": { "type": "integer", "minimum": 1 },
+                    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                    "row_count": { "type": "integer", "minimum": 0 }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$comment": "The example below is abbreviated to one table and two regions for readability; a real succeeded manifest lists all five tables (see allOf rule).",
+  "examples": [
+    {
+      "manifest_version": "1.0",
+      "provider": "aws",
+      "snapshot_date": "2026-10-05",
+      "run_id": "20261005T141210Z-9c41e2",
+      "revision": 2,
+      "previous_revision": 1,
+      "created_at": "2026-10-05T14:19:02Z",
+      "origin": "pipeline",
+      "status": "succeeded",
+      "regions": { "requested": ["eu-west-1", "us-east-1"], "succeeded": ["eu-west-1", "us-east-1"], "failed": [] },
+      "run": {
+        "trigger": "manual",
+        "mode": "regions",
+        "host": "aws-ecs",
+        "started_at": "2026-10-05T14:12:10Z",
+        "ended_at": "2026-10-05T14:19:40Z",
+        "pipeline_version": { "git_sha": "d737b83", "image_tag": "d737b83" },
+        "region_results": [
+          { "region": "eu-west-1", "outcome": "succeeded", "attempts": 2, "services_downloaded": 214, "services_without_price_list": 31 }
+        ]
+      },
+      "raw": {
+        "eu-west-1": { "location": "aws/raw/2026-10-05/eu-west-1/20261005T141210Z-9c41e2/", "file_count": 214, "bytes": 24117822, "stored_at": "2026-10-05T14:15:30Z", "purge_after": "2026-11-05" },
+        "us-east-1": { "location": "aws/raw/2026-10-05/us-east-1/20261005T130004Z-a1b2c3/", "file_count": 235, "bytes": 27310045, "stored_at": "2026-10-05T13:06:12Z", "purge_after": "2026-11-05" }
+      },
+      "tables": {
+        "price_fact": {
+          "schema_version": 1,
+          "row_count": 3500000,
+          "regions": {
+            "eu-west-1": { "written_by_run": "20261005T141210Z-9c41e2", "row_count": 1600000, "files": [ { "path": "aws/parquet/price_fact/snapshot_date=2026-10-05/region=eu-west-1/part-20261005T141210Z-9c41e2.parquet", "bytes": 18231002, "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "row_count": 1600000 } ] },
+            "us-east-1": { "written_by_run": "20261005T130004Z-a1b2c3", "row_count": 1900000, "files": [ { "path": "aws/parquet/price_fact/snapshot_date=2026-10-05/region=us-east-1/part-20261005T130004Z-a1b2c3.parquet", "bytes": 21002311, "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "row_count": 1900000 } ] }
+          }
+        }
+      },
+      "purged": null
+    }
+  ]
+}

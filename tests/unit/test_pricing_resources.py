@@ -4,7 +4,9 @@ Tests for src/dagster_app/resources.py — PricingRegionsResource (FR-001, FR-00
 
 import pytest
 
-from src.dagster_app.resources import PricingRegionsResource
+pytest.importorskip("dagster")
+
+from src.dagster_app.resources import PricingRegionsResource  # noqa: E402
 
 
 def test_get_regions_returns_explicit_override():

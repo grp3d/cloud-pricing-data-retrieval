@@ -1,103 +1,108 @@
 """
-Tests for pricing_weekly_schedule (FR-003, FR-004, FR-008, FR-009).
+pricing_weekly_schedule and the pricing_snapshot op (FR-007, research R16).
+
+Dagster is an optional local runner. CI installs requirements-dagster.txt so these tests
+run there (T074); developers without the extra installed skip them.
 """
 
-from dagster import build_schedule_context
+import pytest
 
-from src.aws_regions import resolve_regions
-from src.dagster_app.resources import PricingRegionsResource
-from src.dagster_app.schedules.pricing_schedules import pricing_weekly_schedule
+pytest.importorskip("dagster")
+
+import datetime as dt  # noqa: E402
+
+from dagster import build_op_context, build_schedule_context  # noqa: E402
+
+from src.aws_regions import resolve_regions  # noqa: E402
+from src.dagster_app.assets.pricing_assets import SnapshotRunConfig, run_pricing_snapshot  # noqa: E402
+from src.dagster_app.resources import PricingRegionsResource  # noqa: E402
+from src.dagster_app.schedules.pricing_schedules import pricing_weekly_schedule  # noqa: E402
+from src.pipeline.runner import RunReport  # noqa: E402
 
 
-def _region(run_request):
-    return run_request.run_config["ops"]["download_pricing"]["config"]["region"]
+def _config(run_request):
+    return run_request.run_config["ops"]["run_pricing_snapshot"]["config"]
 
 
 def _context(regions=None):
-    """Build a schedule context with the pricing_regions resource wired in.
-
-    regions=None -> PricingRegionsResource()'s own default (aws_regions.resolve_regions(),
-    i.e. DEFAULT_PRICING_REGIONS / PRICING_REGIONS env var — set/clear the env var with
-    monkeypatch *before* calling this).
-    regions=[...] -> exercises the direct Dagster-resource-config override path (no env var
-    involved at all), the fix for the "region list isn't reachable via Dagster's own config"
-    gap.
-    """
     resource = (
         PricingRegionsResource(regions=regions) if regions is not None else PricingRegionsResource()
     )
-    return build_schedule_context(resources={"pricing_regions": resource})
+    return build_schedule_context(
+        resources={"pricing_regions": resource},
+        scheduled_execution_time=dt.datetime(2026, 10, 5, 13, 0, tzinfo=dt.timezone.utc),
+    )
 
 
-def test_yields_one_run_request_per_configured_region(monkeypatch):
+def test_one_run_per_tick_covering_all_configured_regions(monkeypatch):
     monkeypatch.delenv("PRICING_REGIONS", raising=False)
-    context = _context()
-
-    run_requests = list(pricing_weekly_schedule(context))
-
-    regions = resolve_regions()
-    assert len(run_requests) == len(regions)
-    assert sorted(_region(rr) for rr in run_requests) == sorted(regions)
-
-
-def test_each_run_request_has_a_distinct_run_key(monkeypatch):
-    monkeypatch.delenv("PRICING_REGIONS", raising=False)
-    context = _context()
-
-    run_requests = list(pricing_weekly_schedule(context))
-    run_keys = [rr.run_key for rr in run_requests]
-
-    assert len(run_keys) == len(set(run_keys))
-    for rr in run_requests:
-        assert rr.run_key.endswith(f"-{_region(rr)}")
-
-
-def test_download_and_transform_config_region_match_per_run_request(monkeypatch):
-    monkeypatch.delenv("PRICING_REGIONS", raising=False)
-    context = _context()
-
-    for rr in pricing_weekly_schedule(context):
-        download_region = rr.run_config["ops"]["download_pricing"]["config"]["region"]
-        transform_region = rr.run_config["ops"]["transform_to_parquet"]["config"]["region"]
-        assert download_region == transform_region
+    run_requests = list(pricing_weekly_schedule(_context()))
+    assert len(run_requests) == 1
+    assert _config(run_requests[0])["regions"] == resolve_regions()
+    assert _config(run_requests[0])["trigger"] == "scheduled"
+    assert run_requests[0].run_key == "snapshot-20261005T130000Z"
 
 
 def test_respects_env_var_region_override(monkeypatch):
-    """PRICING_REGIONS env var still works — it's the default source PricingRegionsResource
-    reads from when no explicit resource config is given."""
     monkeypatch.setenv("PRICING_REGIONS", "us-east-1,eu-west-1")
-    context = _context()
-
-    run_requests = list(pricing_weekly_schedule(context))
-
-    assert sorted(_region(rr) for rr in run_requests) == ["eu-west-1", "us-east-1"]
+    (rr,) = pricing_weekly_schedule(_context())
+    assert _config(rr)["regions"] == ["us-east-1", "eu-west-1"]
 
 
 def test_respects_direct_resource_config_override(monkeypatch):
-    """The region list is also settable directly via Dagster's resource config — not only
-    the PRICING_REGIONS env var — e.g. Definitions(resources={"pricing_regions":
-    PricingRegionsResource(regions=[...])}). No env var involved in this test at all."""
     monkeypatch.delenv("PRICING_REGIONS", raising=False)
-    context = _context(regions=["us-west-1", "ap-northeast-1"])
-
-    run_requests = list(pricing_weekly_schedule(context))
-
-    assert sorted(_region(rr) for rr in run_requests) == ["ap-northeast-1", "us-west-1"]
-
-
-def test_each_run_request_carries_the_concurrency_pool_tag(monkeypatch):
-    """SC-002/SC-006: concurrency is tagged so it's automatically verifiable, not just
-    observable manually in the Dagster Runs view (see quickstart.md Step 5)."""
-    monkeypatch.delenv("PRICING_REGIONS", raising=False)
-    context = _context()
-
-    run_requests = list(pricing_weekly_schedule(context))
-
-    assert run_requests, "expected at least one RunRequest"
-    for rr in run_requests:
-        assert rr.tags.get("dagster/concurrency_key") == "pricing-region-download"
+    (rr,) = pricing_weekly_schedule(_context(regions=["us-west-1", "ap-northeast-1"]))
+    assert _config(rr)["regions"] == ["us-west-1", "ap-northeast-1"]
 
 
 def test_cron_schedule_is_weekly_not_daily():
-    """FR-008: fires once per week (Monday 13:00 UTC), not once per day."""
     assert pricing_weekly_schedule.cron_schedule == "0 13 * * 1"
+
+
+def _report(status="succeeded", outcome="completed"):
+    return RunReport(
+        run_id="20261005T130000Z-111111",
+        trigger="manual",
+        mode="full",
+        snapshot_date="2026-10-05",
+        regions=["us-east-1"],
+        outcome=outcome,
+        snapshot_status=status,
+    )
+
+
+def _invoke_op(monkeypatch, report, config=None):
+    seen = {}
+
+    def fake_run_snapshot(settings, request, **kwargs):
+        seen["request"] = request
+        return report
+
+    monkeypatch.setattr("src.dagster_app.assets.pricing_assets.run_snapshot", fake_run_snapshot)
+    context = build_op_context(resources={"pricing_regions": PricingRegionsResource(regions=["us-east-1"])})
+    result = run_pricing_snapshot(context, config or SnapshotRunConfig())
+    return result, seen
+
+
+def test_op_calls_the_shared_entry_point(monkeypatch):
+    result, seen = _invoke_op(monkeypatch, _report())
+    assert result["status"] == "succeeded"
+    assert seen["request"].regions == ["us-east-1"]
+    assert seen["request"].snapshot_date is None
+
+
+def test_op_passes_launchpad_config(monkeypatch):
+    _, seen = _invoke_op(
+        monkeypatch,
+        _report(),
+        SnapshotRunConfig(snapshot_date="2026-10-05", regions=["eu-west-1"], transform_only=True),
+    )
+    assert seen["request"].snapshot_date == "2026-10-05"
+    assert seen["request"].regions == ["eu-west-1"]
+    assert seen["request"].transform_only is True
+
+
+@pytest.mark.parametrize("report", [_report(status="failed"), _report(outcome="refused")])
+def test_op_raises_on_failed_or_refused(monkeypatch, report):
+    with pytest.raises(RuntimeError):
+        _invoke_op(monkeypatch, report)

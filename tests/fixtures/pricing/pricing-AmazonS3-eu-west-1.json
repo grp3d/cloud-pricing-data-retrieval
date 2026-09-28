@@ -1,0 +1,72 @@
+{
+ "formatVersion": "v1.0",
+ "offerCode": "AmazonS3",
+ "products": {
+  "S3-EUWEST1-REQ": {
+   "attributes": {
+    "group": "S3-API-Tier1",
+    "location": "EU (Ireland)",
+    "locationType": "AWS Region",
+    "regionCode": "eu-west-1",
+    "servicecode": "AmazonS3",
+    "servicename": "Amazon Simple Storage Service"
+   },
+   "productFamily": "API Request",
+   "sku": "S3-EUWEST1-REQ"
+  },
+  "S3-EUWEST1-STD": {
+   "attributes": {
+    "location": "EU (Ireland)",
+    "locationType": "AWS Region",
+    "regionCode": "eu-west-1",
+    "servicecode": "AmazonS3",
+    "servicename": "Amazon Simple Storage Service",
+    "storageClass": "General Purpose"
+   },
+   "productFamily": "Storage",
+   "sku": "S3-EUWEST1-STD"
+  }
+ },
+ "publicationDate": "2026-09-01T00:00:00Z",
+ "terms": {
+  "OnDemand": {
+   "S3-EUWEST1-REQ": {
+    "S3-EUWEST1-REQ.JRTCKXETXF": {
+     "offerTermCode": "JRTCKXETXF",
+     "priceDimensions": {
+      "S3-EUWEST1-REQ.JRTCKXETXF.6YS6EN2CT7": {
+       "beginRange": "0",
+       "description": "tier1 requests",
+       "endRange": "Inf",
+       "pricePerUnit": {
+        "USD": "0.0000050000"
+       },
+       "unit": "Requests"
+      }
+     },
+     "sku": "S3-EUWEST1-REQ",
+     "termAttributes": {}
+    }
+   },
+   "S3-EUWEST1-STD": {
+    "S3-EUWEST1-STD.JRTCKXETXF": {
+     "offerTermCode": "JRTCKXETXF",
+     "priceDimensions": {
+      "S3-EUWEST1-STD.JRTCKXETXF.6YS6EN2CT7": {
+       "beginRange": "0",
+       "description": "standard storage",
+       "endRange": "Inf",
+       "pricePerUnit": {
+        "USD": "0.0230000000"
+       },
+       "unit": "GB-Mo"
+      }
+     },
+     "sku": "S3-EUWEST1-STD",
+     "termAttributes": {}
+    }
+   }
+  }
+ },
+ "version": "20260901000000"
+}

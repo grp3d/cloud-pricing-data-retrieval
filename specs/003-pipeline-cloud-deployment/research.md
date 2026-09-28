@@ -166,7 +166,8 @@ Locally, the same logic runs under `flock`.
 - **Permanent errors (never retried)**: HTTP 4xx other than 429, AccessDenied, an invalid region, and `ValidationException`.
 - **Region outcome**: a region **fails** if any service that has a price list still fails after its retries. "No price list available in region" is **not** a failure; it is counted in the manifest as `services_without_price_list`.
 - **Reporting**: the region result records `download_attempts_max` and its last error.
-- **Separation from AWS SDK retries**: botocore's own retries for other API calls stay on the SDK's `standard` mode and are **not** controlled by these settings. This keeps the `pricing_download_retry_*` names specific to pricing downloads, as the clarification required.
+- **Throttling of the Price List API** (`ListPriceLists`, `GetPriceListFileUrl`) is part of downloading a service's price list, so it is retried per the same policy once botocore's own retries give up. Found in the first real run (2026-09-28): with regions downloading in parallel, `ListPriceLists` throttled 17 of 272 services, which the old code had silently skipped.
+- **SDK retries**: boto3 clients use botocore's `adaptive` retry mode (client-side rate limiting, 5 attempts). This is SDK configuration, not a setting, so the `pricing_download_retry_*` names stay specific to pricing downloads, as the clarification required.
 
 **Rationale**:
 - Today one timed-out service file is silently dropped while the region still counts as "success", so the snapshot data may be incomplete.
@@ -177,7 +178,7 @@ Locally, the same logic runs under `flock`.
 **Decision**: The retention step runs as the last phase of `runner.run_snapshot` (and via `retention` on demand). It works in this order:
 
 1. **Build the active set**: list the current `manifest.json` of every date and collect the paths of files listed by manifests whose status isn't `purged`.
-2. **Superseded and orphaned files for the run's own date** (the claim is already held): Parquet keys under that date's prefix that aren't in the active set. A file is eligible when `now ≥ current_manifest.created_at + grace` **and** `now ≥ file.last_modified + grace`.
+2. **Superseded and orphaned files for the run's own date** (the claim is already held): Parquet keys under that date's prefix that aren't in the active set. A superseded file (listed by an earlier revision) is eligible when `now ≥ current_manifest.created_at + grace`; the superseding revision is always written after the file, so the file's own timestamp adds nothing. An orphan (never listed by any revision, e.g. left by a failed run) is eligible when `now ≥ file.last_modified + grace`.
    - If the grace period is ≤ `SUPERSEDED_FILE_INLINE_WAIT_MAX_MINUTES`, the step sleeps for the remaining time first.
    - Otherwise it skips those files, and a later run's retention step deletes them.
 3. **Other dates**: try to take each date's claim (skip the date if it's busy), then apply the same superseded rule, without waiting.
@@ -185,7 +186,7 @@ Locally, the same logic runs under `flock`.
 5. **Purge a date**: rewrite `manifest.json` as a new revision with `status=purged`, `purged_at` and an empty `tables`, and append it to `revisions/`. Only then delete the date's Parquet files.
 6. **Guard (FR-046)**: immediately before each delete, check the key against a *freshly re-read* active set for that date (re-read `manifest.json`). If the key is now referenced, skip it and log.
 7. **Raw data**:
-   - **S3**: an **S3 lifecycle rule** expires `<provider>/raw/` after `RAW_RETENTION_DAYS` days, one rule per provider prefix, generated from the `providers` variable.
+   - **S3**: an **S3 lifecycle rule** expires `<provider>/raw/` after `RAW_RETENTION_DAYS` days, one rule per provider prefix, generated from the `pricing_providers` variable (`providers` is a reserved variable name in Terraform/OpenTofu).
    - **Local**: the retention step deletes raw run folders older than `RAW_RETENTION_DAYS`, based on the `raw_stored_at` recorded in manifests or the folder mtime.
 8. **Dry run**: compute the same plan, log it, emit it as JSON with `--dry-run --output plan.json`, and skip every write and delete.
 
@@ -241,7 +242,7 @@ Locally, the same logic runs under `flock`.
 
 - **`infra/bootstrap`**: applied once from a laptop, with local state migrated into the bucket it creates. It creates:
   - **Account singletons** (the constitution V exception), named `cloud-pricing-shared-*` and tagged `environment=shared`:
-    - The state bucket (`cloud-pricing-shared-tfstate-<account_id>`), versioned and encrypted.
+    - The state bucket (owner-chosen name via `state_bucket_name`), versioned and encrypted.
     - The GitHub OIDC provider.
     - An **AWS Budget** (`cloud-pricing-shared-budget`) covering the whole account: a warning at $15 and an alert at $25 of actual spend per month, plus a forecasted alert at $25.
   - **Per-environment** CI roles, one set per entry in the `environments` variable (default `["prod"]`):
@@ -289,6 +290,7 @@ Locally, the same logic runs under `flock`.
 - **Access**: Block Public Access (all 4 settings), a bucket policy that denies non-TLS requests, and `BucketOwnerEnforced` object ownership.
 - **Encryption**: SSE-S3 (SSE-KMS adds per-request cost and key cost for no gain here).
 - **Versioning**: enabled, with **noncurrent versions expiring after 7 days**. This is a safety net against accidental deletes of irreplaceable history, at negligible cost.
+- **Naming**: bucket names are chosen by the owner (`data_bucket_name`, `state_bucket_name`) and never contain the AWS account ID (decided 2026-09-29). Account IDs aren't secret, but there's no need to expose one in S3 hostnames, logs and app configuration. A generated random suffix was rejected as unnecessary automation.
 - **Web app access**: the managed IAM policy `cloud-pricing-data-read-<env>` (`s3:GetObject` and `s3:ListBucket` on the data prefixes), output for the app feature to attach.
 
 ## R16. Dagster's role (FR-007)

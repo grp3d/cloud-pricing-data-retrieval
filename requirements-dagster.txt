@@ -1,0 +1,5 @@
+# Optional local runner (FR-007). Not installed in the container image.
+-r requirements.txt
+dagster>=1.7.0        # Pipeline orchestration
+dagster-webserver>=1.7.0  # Dagster UI (dagster_app dev)
+dagster-dg-cli>=1.13.20
