@@ -59,14 +59,15 @@ jobs:
           for stack in bootstrap data pipeline; do
             (cd infra/$stack && tofu init -backend=false -input=false && tofu validate)
           done
-          for stack in data pipeline; do
+          for stack in bootstrap data pipeline; do
             (cd infra/$stack && tofu test)
           done
 
   plan:
     runs-on: ubuntu-24.04
     needs: [tofu]
-    if: github.event_name == 'pull_request' && vars.AWS_ROLE_PLAN_PROD != ''
+    # Secrets can't be used in `if:`, so a plain variable switches the plan on once AWS is set up.
+    if: github.event_name == 'pull_request' && vars.AWS_PLAN_ENABLED == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: opentofu/setup-opentofu@v1
@@ -75,8 +76,9 @@ jobs:
           tofu_wrapper: false
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_PLAN_PROD }}
+          role-to-assume: ${{ secrets.AWS_ROLE_PLAN_PROD }}
           aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: true   # public repo: hide the account ID in all later log lines
       - name: plan data and pipeline
         env:
           TF_VAR_alert_email: ${{ secrets.TF_VAR_ALERT_EMAIL }}

@@ -8,23 +8,60 @@ locals {
   # Loop over environment names, not role objects: referencing a whole aws_iam_role pulls in
   # its deprecated managed_policy_arns attribute and triggers provider warnings.
   gha_envs = local.github_enabled ? toset(var.environments) : toset([])
+
+  # OIDC subject ("sub") of GitHub's tokens for this repo. Repositories created after
+  # 2026-07-15 use the immutable format, which embeds the owner and repository IDs:
+  #   repo:OWNER@OWNER_ID/REPO@REPO_ID:...
+  gh_owner = local.github_enabled ? split("/", var.github_repository)[0] : ""
+  gh_name  = local.github_enabled ? split("/", var.github_repository)[1] : ""
+  gh_sub_repo = (
+    var.github_immutable_subject
+    ? "repo:${local.gh_owner}@${coalesce(var.github_owner_id, "MISSING")}/${local.gh_name}@${coalesce(var.github_repo_id, "MISSING")}"
+    : "repo:${var.github_repository}"
+  )
+
+  # With the repo's subject template set to include_claim_keys = ["repo", "context", "ref"]
+  # (see infra/README.md), each token names both its context and its ref, so AWS can check
+  # where a request comes from, not just which environment it runs in:
+  #   plan  — pull requests only
+  #   apply — the prod environment, and only for release tags or a manual redeploy from main
+  #   run   — main only. A plain run's context is itself its ref, so both possible renderings
+  #           are accepted (no wildcard).
+  gha_subjects = {
+    for env in var.environments : env => {
+      plan = ["${local.gh_sub_repo}:pull_request:ref:refs/pull/*/merge"]
+      apply = [
+        "${local.gh_sub_repo}:environment:${env}:ref:refs/tags/v*",
+        "${local.gh_sub_repo}:environment:${env}:ref:refs/heads/main",
+      ]
+      run = [
+        "${local.gh_sub_repo}:ref:refs/heads/main:ref:refs/heads/main",
+        "${local.gh_sub_repo}:ref:refs/heads/main",
+      ]
+    }
+  }
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
   count          = local.github_enabled ? 1 : 0
   url            = "https://${local.oidc_host}"
   client_id_list = ["sts.amazonaws.com"]
+
+  lifecycle {
+    precondition {
+      condition     = !var.github_immutable_subject || (var.github_owner_id != null && var.github_repo_id != null)
+      error_message = "The immutable OIDC subject format needs github_owner_id and github_repo_id (both public, see variables.tf)."
+    }
+  }
 }
 
 data "aws_iam_policy_document" "gha_trust" {
   for_each = local.github_enabled ? {
     for pair in flatten([
       for env in var.environments : [
-        { key = "plan-${env}", sub = "repo:${var.github_repository}:pull_request" },
-        { key = "apply-${env}", sub = "repo:${var.github_repository}:environment:${env}" },
-        { key = "run-${env}", sub = "repo:${var.github_repository}:ref:refs/heads/main" },
+        for kind in ["plan", "apply", "run"] : { key = "${kind}-${env}", subs = local.gha_subjects[env][kind] }
       ]
-    ]) : pair.key => pair.sub
+    ]) : pair.key => pair.subs
   } : {}
 
   statement {
@@ -39,9 +76,9 @@ data "aws_iam_policy_document" "gha_trust" {
       values   = ["sts.amazonaws.com"]
     }
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "${local.oidc_host}:sub"
-      values   = [each.value]
+      values   = each.value
     }
   }
 }

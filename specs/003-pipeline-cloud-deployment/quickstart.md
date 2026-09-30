@@ -139,9 +139,11 @@ tofu init && tofu apply -var github_repository=<owner>/cloud-pricing-data-retrie
 # then migrate this stack's own state into the new bucket (documented in infra/bootstrap/README.md)
 ```
 
-In GitHub, create the environment `prod` with a required reviewer, and add these settings:
-- **Secrets**: `TF_VAR_alert_email` and `TF_VAR_budget_email`.
-- **Variables**: `AWS_REGION`, plus the role ARNs from the bootstrap output `gha_role_arns` as `AWS_ROLE_PLAN_PROD`, `AWS_ROLE_APPLY_PROD` and `AWS_ROLE_RUN_PROD`. They aren't secret.
+In GitHub, follow `infra/README.md` → "One-time GitHub setup" and "OIDC trust":
+- **Environment `prod`:** required reviewer; allowed refs `main` and `v*`.
+- **Secrets:** `TF_VAR_ALERT_EMAIL`, and the role ARNs from the bootstrap output `gha_role_arns` as `AWS_ROLE_PLAN_PROD`, `AWS_ROLE_APPLY_PROD` and `AWS_ROLE_RUN_PROD`. They're secrets because the repo's Actions logs are public.
+- **Variables:** `AWS_REGION`, and `AWS_PLAN_ENABLED` = `true` once the OIDC subject template is set.
+- **OIDC subject template** `["repo", "context", "ref"]` via the API, then a bootstrap apply with `github_owner_id` and `github_repo_id`.
 
 ### B2. Deploy from CI (FR-034, US6 AS3)
 

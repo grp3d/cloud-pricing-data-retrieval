@@ -145,35 +145,77 @@ Details:
 
 ### One-time GitHub setup
 
-1. Settings → Environments → create **`prod`**:
+The repo is public, so Actions logs are public. The role ARNs are stored as **secrets** (masked
+in logs), and every AWS login uses `mask-aws-account-id: true`, which hides the account ID in all
+later log output.
+
+1. Settings → Actions → General:
+   - **Fork pull request workflows:** require approval for all external contributors.
+   - **Workflow permissions:** read repository contents.
+2. Settings → Environments → create **`prod`**:
    - **Required reviewers:** yourself.
    - **Deployment branches and tags:** *Selected branches and tags*, then add branch `main` and tag
-     pattern `v*`. Jobs from any other ref can't use `prod`, and so can't get the AWS apply role.
-2. Settings → Rules → Rulesets:
-   - **`main`:** require a pull request and passing status checks (the `ci` jobs), and block force
-     pushes and deletion.
-   - **Tags `v*`:** restrict creation, update and deletion to yourself.
+     pattern `v*`.
 3. Settings → Secrets and variables → Actions:
-   - **Secrets**: `TF_VAR_ALERT_EMAIL`.
-   - **Variables**: `AWS_REGION` (`us-east-1`), and from the bootstrap output `gha_role_arns`:
-     `AWS_ROLE_PLAN_PROD`, `AWS_ROLE_APPLY_PROD`, `AWS_ROLE_RUN_PROD`. They aren't secret.
-   - **Variables for `run-pipeline.yml`**, from the pipeline stack outputs:
+   - **Secrets:** `TF_VAR_ALERT_EMAIL`, and the three ARNs from `tofu output gha_role_arns` in
+     `infra/bootstrap`: `AWS_ROLE_PLAN_PROD`, `AWS_ROLE_APPLY_PROD`, `AWS_ROLE_RUN_PROD`.
+   - **Variables:** `AWS_REGION` (`us-east-1`), and `AWS_PLAN_ENABLED` = `true` once the OIDC
+     step below is done (it turns on the PR plan comment).
+   - **Variables for `run-pipeline.yml`**, from the pipeline stack outputs after the first deploy:
      `PIPELINE_CLUSTER_ARN`, `PIPELINE_TASK_FAMILY`, `PIPELINE_SUBNET_IDS` (comma-separated),
      `PIPELINE_SECURITY_GROUP_ID`, `PIPELINE_LOG_GROUP`.
+4. Settings → Rules → Rulesets:
+   - **Tags `v*`:** restrict creation, update and deletion to yourself.
+   - **`main`:** require a pull request, and block force pushes and deletion. Add the `ci` jobs as
+     required status checks once they have run on a PR.
 
 The very first deploy needs the data stack and the ECR repository to exist. Apply the data stack
 from your laptop, and create the repository once with
 `tofu apply -var-file=../envs/prod.tfvars -var image_tag=initial -target=aws_ecr_repository.pipeline`
 in `infra/pipeline`.
 
-### Deferred hardening
+### OIDC trust (who may assume which AWS role)
 
-The AWS apply role trusts any job running in the GitHub `prod` environment. The environment's
-allowed refs (`main`, `v*`) and the rulesets above are what restrict that to releases. For a second
-check on the AWS side, customize the repository's OIDC subject claim to include the ref and require
-it in the CI roles' trust policies (bootstrap stack). This changes the token identity for every
-workflow, so all three roles must be updated together. Recommended once the repo gains
-collaborators, becomes public, or gets more environments.
+GitHub gives each job a token whose subject (`sub`) says where it runs. This repo was created after
+2026-07-15, so the subject uses GitHub's immutable format, with the owner and repo IDs:
+`repo:grp3d@5554338/cloud-pricing-data-retrieval@1378571708:...`. The repo's subject template is set
+to `["repo", "context", "ref"]`, so every token also names its ref, and the CI roles
+(`infra/bootstrap/github_oidc.tf`) accept only:
+
+| Role | Accepted subject |
+|---|---|
+| `cloud-pricing-gha-plan-prod` | `…:pull_request:ref:refs/pull/*/merge` |
+| `cloud-pricing-gha-apply-prod` | `…:environment:prod:ref:refs/tags/v*` or `…:environment:prod:ref:refs/heads/main` |
+| `cloud-pricing-gha-run-prod` | `…:ref:refs/heads/main` (both renderings of a plain run) |
+
+`tofu output gha_trust_subjects` in `infra/bootstrap` shows the exact list.
+
+**One-time setup, done together** (CI can't reach AWS between the two steps):
+
+1. Set the repo's subject template. This needs a token that can administer the repo, for example
+   a classic personal access token with the `repo` scope, deleted afterwards:
+
+   ```bash
+   curl -L -X PUT \
+     -H "Accept: application/vnd.github+json" \
+     -H "Authorization: Bearer <TOKEN>" \
+     https://api.github.com/repos/grp3d/cloud-pricing-data-retrieval/actions/oidc/customization/sub \
+     -d '{"use_default": false, "use_immutable_subject": true, "include_claim_keys": ["repo", "context", "ref"]}'
+
+   # check (works without a token on a public repo)
+   curl -s https://api.github.com/repos/grp3d/cloud-pricing-data-retrieval/actions/oidc/customization/sub
+   ```
+
+2. Apply the bootstrap stack with the repo's numeric IDs (both public):
+
+   ```bash
+   cd infra/bootstrap
+   tofu apply -var github_owner_id=5554338 -var github_repo_id=1378571708   # plus your usual TF_VAR_* values
+   ```
+
+3. After the branch is merged, run Actions → **oidc-subject** once from `main`. Its `sub` line
+   must match one of the `run` entries in `tofu output gha_trust_subjects`. The PR plan job and
+   the first deploy confirm the `plan` and `apply` entries.
 
 ## Destroy and re-create the pipeline stack (SC-008)
 

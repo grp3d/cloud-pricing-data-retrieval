@@ -29,6 +29,39 @@ variable "github_repository" {
   description = "GitHub repository allowed to assume the CI roles, as owner/name."
   type        = string
   default     = null
+
+  validation {
+    condition     = var.github_repository == null || can(regex("^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$", var.github_repository))
+    error_message = "github_repository must look like owner/name."
+  }
+}
+
+variable "github_immutable_subject" {
+  description = "true if the repo's OIDC tokens use GitHub's immutable subject format (default for repos created after 2026-07-15)."
+  type        = bool
+  default     = true
+}
+
+variable "github_owner_id" {
+  description = "Numeric GitHub ID of the repo owner (public: https://api.github.com/users/<owner>). Needed for the immutable subject format."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.github_owner_id == null || can(regex("^[0-9]+$", var.github_owner_id))
+    error_message = "github_owner_id must be numeric."
+  }
+}
+
+variable "github_repo_id" {
+  description = "Numeric GitHub ID of the repository (public: https://api.github.com/repos/<owner>/<name>). Needed for the immutable subject format."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.github_repo_id == null || can(regex("^[0-9]+$", var.github_repo_id))
+    error_message = "github_repo_id must be numeric."
+  }
 }
 
 variable "budget_email" {

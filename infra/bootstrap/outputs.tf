@@ -13,3 +13,8 @@ output "gha_role_arns" {
     }
   }
 }
+
+output "gha_trust_subjects" {
+  description = "The GitHub OIDC subjects each CI role accepts, per environment (for checking against a real token)."
+  value       = local.github_enabled ? local.gha_subjects : {}
+}

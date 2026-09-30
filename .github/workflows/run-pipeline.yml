@@ -33,8 +33,9 @@ jobs:
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_RUN_PROD }}
+          role-to-assume: ${{ secrets.AWS_ROLE_RUN_PROD }}
           aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: true   # public repo: hide the account ID in all later log lines
       - name: build command
         id: cmd
         env:
