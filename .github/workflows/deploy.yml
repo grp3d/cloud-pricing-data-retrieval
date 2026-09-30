@@ -1,10 +1,22 @@
-# main: test → build + push the multi-arch image → apply to prod after manual approval
-# (FR-034, research R14). The `prod` GitHub Environment must require a reviewer.
+# Release-based deploys to prod (FR-034, research R14, model B).
+#
+#   git tag -a v1.2.0 -m "..." && git push origin v1.2.0     → deploy that release
+#   Actions → deploy → Run workflow (from main), tag: v1.1.0  → redeploy / roll back
+#
+# Merges to main never deploy; ci.yml tests them. Guards: the tag must be vX.Y.Z and its
+# commit must be on main, and the `prod` environment (required reviewer, allowed refs `main`
+# and `v*`) gates the job that gets AWS credentials.
 name: deploy
 
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to deploy (e.g. v1.1.0). Run this from main.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -18,10 +30,41 @@ env:
   TOFU_VERSION: "1.10.6"
 
 jobs:
-  test:
+  resolve:
     runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history and tags, for the on-main check
+      - id: release
+        name: validate tag and check it is on main
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' is not a release tag (expected vMAJOR.MINOR.PATCH)"; exit 1
+          fi
+          if ! sha=$(git rev-parse --verify --quiet "refs/tags/$TAG^{commit}"); then
+            echo "::error::tag $TAG does not exist"; exit 1
+          fi
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "::error::$TAG ($sha) is not on main; only commits merged to main can be released"; exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Releasing $TAG at ${sha::12}"
+
+  test:
+    runs-on: ubuntu-24.04
+    needs: [resolve]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
@@ -33,29 +76,48 @@ jobs:
   # apply role only trusts this environment (bootstrap github_oidc.tf).
   deploy:
     runs-on: ubuntu-24.04
-    needs: [test]
+    needs: [resolve, test]
     environment: prod   # required reviewer = the manual approval
+    env:
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+      RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
-      - id: tag
-        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_APPLY_PROD }}
           aws-region: ${{ vars.AWS_REGION }}
       - id: ecr
         uses: aws-actions/amazon-ecr-login@v2
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      # ECR tags are immutable: a redeploy or rollback reuses the image built for that tag.
+      - id: image
+        name: check for an existing image
+        run: |
+          if aws ecr describe-images --repository-name cloud-pricing-pipeline-prod \
+               --image-ids imageTag="$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Image $RELEASE_TAG already in ECR; skipping build"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.image.outputs.exists != 'true'
+        uses: docker/setup-qemu-action@v3
+      - if: steps.image.outputs.exists != 'true'
+        uses: docker/setup-buildx-action@v3
+      - if: steps.image.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/arm64,linux/amd64   # Fargate (Graviton) and amd64 home servers
           push: true
-          tags: ${{ steps.ecr.outputs.registry }}/cloud-pricing-pipeline-prod:${{ steps.tag.outputs.tag }}
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/cloud-pricing-pipeline-prod:${{ env.RELEASE_TAG }}
+            ${{ steps.ecr.outputs.registry }}/cloud-pricing-pipeline-prod:sha-${{ needs.resolve.outputs.sha }}
           build-args: |
-            GIT_SHA=${{ steps.tag.outputs.tag }}
-            IMAGE_TAG=${{ steps.tag.outputs.tag }}
+            GIT_SHA=${{ needs.resolve.outputs.sha }}
+            IMAGE_TAG=${{ env.RELEASE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - uses: opentofu/setup-opentofu@v1
@@ -65,14 +127,14 @@ jobs:
       - name: apply data, then pipeline
         env:
           TF_VAR_alert_email: ${{ secrets.TF_VAR_ALERT_EMAIL }}
-          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           for stack in data pipeline; do
             (
               cd infra/$stack
               tofu init -input=false -backend-config=../envs/prod.backend.hcl -backend-config="key=prod/$stack.tfstate"
               extra=""
-              [ $stack = pipeline ] && extra="-var image_tag=$IMAGE_TAG"
+              [ $stack = pipeline ] && extra="-var image_tag=$RELEASE_TAG"
               tofu apply -input=false -auto-approve -var-file=../envs/prod.tfvars $extra
             )
           done
+          echo "::notice::Deployed $RELEASE_TAG (${RELEASE_SHA::12}) to prod"

@@ -145,10 +145,12 @@ In GitHub, create the environment `prod` with a required reviewer, and add these
 
 ### B2. Deploy from CI (FR-034, US6 AS3)
 
-1. Open a PR. Expected: tests pass, the image builds, and a `tofu plan` for `data` and `pipeline` is posted as a comment.
-2. Merge the PR. Expected: the image `<sha>` is pushed to ECR, and the apply job waits for approval.
-3. Approve the apply.
-4. Confirm the SNS subscription email. This is the only manual step.
+1. Open a PR. Expected: tests pass, the image builds, OpenTofu checks pass, and a `tofu plan` for `data` and `pipeline` is posted as a comment.
+2. Merge the PR. Expected: `ci.yml` runs on `main`, and **nothing deploys**.
+3. Tag the release on `main` and push it: `git tag -a v1.0.0 -m "First cloud release" && git push origin v1.0.0`. Expected: `deploy.yml` checks the tag is on `main`, runs the tests, and waits for approval.
+4. Approve the deployment. Expected: image `cloud-pricing-pipeline-prod:v1.0.0` is pushed, and the data and pipeline stacks are applied.
+5. Confirm the SNS subscription email. This is the only manual step.
+6. Negative check: push a tag like `v0.0.1-test` or a `v*` tag on a side branch. Expected: `deploy.yml` fails in its first job, before any AWS access.
 
 ### B3. First run on demand (US1, US6 AS1)
 

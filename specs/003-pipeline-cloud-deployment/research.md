@@ -273,15 +273,15 @@ Locally, the same logic runs under `flock`.
   - `docker build` for arm64 (no push).
   - `tofu fmt -check` and `validate` for all stacks.
   - `tofu plan` for `data` and `pipeline` using the `cloud-pricing-gha-plan-prod` OIDC role, posted as a PR comment.
-- **`deploy.yml`** (push to `main`):
+- **`deploy.yml`** (release-based, decided 2026-09-30): runs on a pushed `vX.Y.Z` tag whose commit is on `main`, or manually from `main` naming an existing tag (redeploy or rollback). Merges to `main` don't deploy; `ci.yml` also runs on pushes to `main`. The GitHub `prod` environment restricts deployments to `main` and `v*` refs. Adding the ref to the OIDC subject claim is deferred (see `infra/README.md`). Steps:
   - Tests.
-  - Build and push a **multi-arch** image (`linux/arm64` for Fargate, `linux/amd64` for typical home servers) to ECR with tag `<git-sha>`. The ECR tags are immutable, a lifecycle rule keeps the last 10 images, and scan-on-push is enabled.
-  - `tofu apply` of `data` then `pipeline` with `-var image_tag=<sha>`, in a job bound to GitHub Environment **`prod`** with required reviewers (the manual approval).
+  - Build and push a **multi-arch** image (`linux/arm64` for Fargate, `linux/amd64` for typical home servers) to ECR, tagged with the release version (`vX.Y.Z`) and `sha-<commit>`. The ECR tags are immutable (a redeploy reuses the existing image), a lifecycle rule keeps the last 10 images, and scan-on-push is enabled.
+  - `tofu apply` of `data` then `pipeline` with `-var image_tag=vX.Y.Z`, in a job bound to GitHub Environment **`prod`** with required reviewers (the manual approval).
 - **`run-pipeline.yml`** (`workflow_dispatch`): inputs are `mode` (`run` | `transform-only` | `retention`), `snapshot_date`, `regions` and `dry_run`. It assumes `cloud-pricing-gha-run-prod` and calls `aws ecs run-task`.
 - **Runner**: the build uses buildx. The arm64 leg runs natively on `ubuntu-24.04-arm` (or under QEMU if that's unavailable), and the amd64 leg on `ubuntu-24.04`. The two are merged into one manifest list.
 
 **Rationale**:
-- Immutable SHA tags make every deploy traceable. The manifest's `pipeline_version` records the same SHA.
+- Immutable version tags make every deploy traceable. The manifest's `pipeline_version` records the version tag and the commit.
 - Approval gates both infrastructure changes and new images.
 
 ## R15. Data bucket settings (FR-011, FR-012)

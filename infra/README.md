@@ -33,7 +33,7 @@ Settings are documented in
    cd infra/pipeline
    tofu init -backend-config=../envs/prod.backend.hcl -backend-config="key=prod/pipeline.tfstate"
    export TF_VAR_alert_email=<you@example.com>
-   tofu apply -var-file=../envs/prod.tfvars -var image_tag=<git-sha>
+   tofu apply -var-file=../envs/prod.tfvars -var image_tag=<release tag, e.g. v1.0.0>
    ```
 
 `envs/prod.tfvars` holds settings for both stacks, so each stack warns about the variables it
@@ -41,15 +41,18 @@ doesn't declare. That's expected.
 
 ## Build and push an image by hand
 
-Use this until CI publishes images. The ECR repository is created by the pipeline stack, so for
-the very first apply run `tofu apply -target=aws_ecr_repository.pipeline` first.
+Normally `deploy.yml` builds and pushes images for release tags. This manual path is a fallback,
+for example if GitHub Actions is unavailable. Build from the tagged commit and use the same
+version tag CI would use. The ECR repository is created by the pipeline stack, so for the very
+first apply run `tofu apply -target=aws_ecr_repository.pipeline` first.
 
 ```bash
+TAG=v1.0.0
+git checkout "$TAG"
 REPO=$(cd infra/pipeline && tofu output -raw ecr_repository_url)
-SHA=$(git rev-parse --short HEAD)
 aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "${REPO%%/*}"
-docker buildx build --platform linux/arm64 --push \
-  --build-arg GIT_SHA=$SHA --build-arg IMAGE_TAG=$SHA -t "$REPO:$SHA" .
+docker buildx build --platform linux/arm64,linux/amd64 --push \
+  --build-arg GIT_SHA=$(git rev-parse HEAD) --build-arg IMAGE_TAG=$TAG -t "$REPO:$TAG" .
 ```
 
 ## Run the pipeline on demand
@@ -106,28 +109,71 @@ Revert both settings afterwards.
 
 ## CI/CD (GitHub Actions)
 
+Prod is deployed only from **release tags** on `main`. Merging to `main` never deploys.
+
 | Workflow | Trigger | Does |
 |---|---|---|
-| `ci.yml` | pull request | `pytest` (incl. Dagster), multi-arch image build (no push), `tofu fmt`/`validate`, prod `tofu plan` posted as a PR comment |
-| `deploy.yml` | push to `main` | tests, then **after approval**: push the image `cloud-pricing-pipeline-prod:<sha>` and `tofu apply` data then pipeline |
+| `ci.yml` | pull request, push to `main` | `pytest` (incl. Dagster), multi-arch image build (no push), `tofu fmt`/`validate`/`test`. On pull requests, also a prod `tofu plan` posted as a comment |
+| `deploy.yml` | push of a `vX.Y.Z` tag, or manual (from `main`, naming an existing tag) | checks the tag is on `main`, runs the tests, then **after approval**: pushes the image `cloud-pricing-pipeline-prod:vX.Y.Z` (reused if it already exists) and applies data, then pipeline |
 | `run-pipeline.yml` | manual | Starts the pipeline task: `run`, `transform-only` or `retention` (optionally dry run) |
 
 CI authenticates with GitHub OIDC; there are no AWS keys in GitHub.
 
+### Releasing to prod
+
+1. Merge PRs into `main` as usual (`ci.yml` runs on the PR and again on `main`).
+2. When you want to release, tag the `main` commit and push the tag:
+
+   ```bash
+   git checkout main && git pull
+   git tag -a v1.0.0 -m "First cloud release"
+   git push origin v1.0.0
+   ```
+
+3. In Actions → **deploy**, open the run and approve it (**Review deployments → prod → Approve**).
+   GitHub emails you when it's waiting.
+
+Details:
+- **Tag format:** `vMAJOR.MINOR.PATCH`. Anything else, or a tag whose commit isn't on `main`, fails
+  before any AWS access.
+- **Every release needs a new version.** Image tags in ECR can't be overwritten, so a fix-up of
+  `v1.0.0` is `v1.0.1`.
+- **Redeploy or roll back:** Actions → deploy → **Run workflow** (on branch `main`) with an existing
+  tag, e.g. `v0.9.0`. Its image is reused, and the stacks are applied with that version.
+- **Push tags from the command line.** Tags created through the GitHub Releases web page may not
+  start the `push: tags` trigger. Use a manual redeploy if that happens.
+
 ### One-time GitHub setup
 
-1. Settings → Environments → create **`prod`** and add yourself as a **required reviewer**.
-2. Settings → Secrets and variables → Actions:
+1. Settings → Environments → create **`prod`**:
+   - **Required reviewers:** yourself.
+   - **Deployment branches and tags:** *Selected branches and tags*, then add branch `main` and tag
+     pattern `v*`. Jobs from any other ref can't use `prod`, and so can't get the AWS apply role.
+2. Settings → Rules → Rulesets:
+   - **`main`:** require a pull request and passing status checks (the `ci` jobs), and block force
+     pushes and deletion.
+   - **Tags `v*`:** restrict creation, update and deletion to yourself.
+3. Settings → Secrets and variables → Actions:
    - **Secrets**: `TF_VAR_ALERT_EMAIL`.
    - **Variables**: `AWS_REGION` (`us-east-1`), and from the bootstrap output `gha_role_arns`:
      `AWS_ROLE_PLAN_PROD`, `AWS_ROLE_APPLY_PROD`, `AWS_ROLE_RUN_PROD`. They aren't secret.
    - **Variables for `run-pipeline.yml`**, from the pipeline stack outputs:
      `PIPELINE_CLUSTER_ARN`, `PIPELINE_TASK_FAMILY`, `PIPELINE_SUBNET_IDS` (comma-separated),
      `PIPELINE_SECURITY_GROUP_ID`, `PIPELINE_LOG_GROUP`.
-3. Commit `infra/envs/prod.backend.hcl` with the real state bucket name.
 
-The very first deploy needs the ECR repository before the image push. Create it once with
-`tofu apply -target=aws_ecr_repository.pipeline` in `infra/pipeline`.
+The very first deploy needs the data stack and the ECR repository to exist. Apply the data stack
+from your laptop, and create the repository once with
+`tofu apply -var-file=../envs/prod.tfvars -var image_tag=initial -target=aws_ecr_repository.pipeline`
+in `infra/pipeline`.
+
+### Deferred hardening
+
+The AWS apply role trusts any job running in the GitHub `prod` environment. The environment's
+allowed refs (`main`, `v*`) and the rulesets above are what restrict that to releases. For a second
+check on the AWS side, customize the repository's OIDC subject claim to include the ref and require
+it in the CI roles' trust policies (bootstrap stack). This changes the token identity for every
+workflow, so all three roles must be updated together. Recommended once the repo gains
+collaborators, becomes public, or gets more environments.
 
 ## Destroy and re-create the pipeline stack (SC-008)
 

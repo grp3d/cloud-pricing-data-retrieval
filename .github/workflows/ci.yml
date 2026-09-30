@@ -1,8 +1,12 @@
-# Pull requests: tests, image build (no push), OpenTofu checks and a prod plan (FR-034).
+# Pull requests and merges to main: tests, image build (no push) and OpenTofu checks; on
+# pull requests also a prod plan comment (FR-034). Deploys happen only from release tags
+# (deploy.yml), so main always carries a green check without deploying.
 name: ci
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -62,7 +66,7 @@ jobs:
   plan:
     runs-on: ubuntu-24.04
     needs: [tofu]
-    if: vars.AWS_ROLE_PLAN_PROD != ''
+    if: github.event_name == 'pull_request' && vars.AWS_ROLE_PLAN_PROD != ''
     steps:
       - uses: actions/checkout@v4
       - uses: opentofu/setup-opentofu@v1
