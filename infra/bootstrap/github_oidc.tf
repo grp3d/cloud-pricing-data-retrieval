@@ -196,6 +196,19 @@ data "aws_iam_policy_document" "gha_apply" {
     }
   }
 
+  # Adding a security group rule creates a security-group-rule resource, which isn't a
+  # Create* action. The rule must carry the tag; the group itself is covered above.
+  statement {
+    sid       = "CreateTaggedSecurityGroupRules"
+    actions   = ["ec2:AuthorizeSecurityGroupEgress"]
+    resources = ["arn:aws:ec2:*:${local.account_id}:security-group-rule/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/environment"
+      values   = [each.key]
+    }
+  }
+
   statement {
     sid       = "TagOnCreate"
     actions   = ["ec2:CreateTags"]
@@ -205,16 +218,35 @@ data "aws_iam_policy_document" "gha_apply" {
       variable = "ec2:CreateAction"
       values = [
         "CreateVpc", "CreateSubnet", "CreateInternetGateway", "CreateRouteTable",
-        "CreateSecurityGroup", "CreateVpcEndpoint",
+        "CreateSecurityGroup", "CreateVpcEndpoint", "AuthorizeSecurityGroupEgress",
       ]
     }
+  }
+
+  # These actions have no resource ARN, so AWS only accepts Resource "*". Where the action
+  # supports request tags, the environment tag carries the scope instead.
+  statement {
+    sid       = "CreateTaggedWithoutResourceArn"
+    actions   = ["ecs:RegisterTaskDefinition", "rolesanywhere:CreateTrustAnchor", "rolesanywhere:CreateProfile"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/environment"
+      values   = [each.key]
+    }
+  }
+
+  statement {
+    sid       = "TaskDefinitionsWithoutResourceArn"
+    actions   = ["ecs:DescribeTaskDefinition", "ecs:DeregisterTaskDefinition"]
+    resources = ["*"]
   }
 
   statement {
     sid = "ReadOnlyDiscovery"
     actions = [
       "ec2:Describe*", "iam:Get*", "iam:List*", "sts:GetCallerIdentity", "ecr:GetAuthorizationToken",
-      "s3:ListAllMyBuckets", "s3:GetBucketLocation",
+      "s3:ListAllMyBuckets", "s3:GetBucketLocation", "logs:DescribeLogGroups",
     ]
     resources = ["*"]
   }

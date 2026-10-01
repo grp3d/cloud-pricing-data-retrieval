@@ -16,7 +16,7 @@ jobs:
   show:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/github-script@v7
+      - uses: actions/github-script@v9
         with:
           script: |
             const token = await core.getIDToken('sts.amazonaws.com');
