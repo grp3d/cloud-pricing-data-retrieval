@@ -74,7 +74,7 @@ def test_never_uploads_raw(store, tmp_path):
     assert list(store.list("aws/raw/")) == []
 
 
-def _local_pipeline_run(tmp_path):
+def _local_pipeline_run(tmp_path, regions="us-east-1", behaviors=None):
     from src.pipeline.runner import RunRequest, run_snapshot
     from src.pipeline.storage import open_storage
     from tests.helpers.fake_pricing import FakePricingSource
@@ -82,9 +82,9 @@ def _local_pipeline_run(tmp_path):
     local_root = tmp_path / "pipeline"
     local = open_storage(f"file://{local_root}")
     report = run_snapshot(
-        PipelineSettings.from_env({"PIPELINE_STORAGE_URI": local.uri, "PRICING_REGIONS": "us-east-1"}),
+        PipelineSettings.from_env({"PIPELINE_STORAGE_URI": local.uri, "PRICING_REGIONS": regions}),
         RunRequest(snapshot_date=DATE),
-        store=local, downloader=FakePricingSource(), now=lambda: NOW, sleep=lambda s: None,
+        store=local, downloader=FakePricingSource(behaviors or {}), now=lambda: NOW, sleep=lambda s: None,
         work_dir=str(tmp_path / "work"),
     )
     return local_root, local, report
@@ -219,3 +219,22 @@ def test_backfill_manifest_contract(tmp_path):
         snap, PipelineSettings.from_env({}), run_id="20261005T130000Z-abcdef", revision=1, now=NOW
     )[0]
     validate_manifest_doc(json.loads(man.to_json()))
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_non_succeeded_source_is_refused(store, tmp_path, overwrite):
+    """A partial or failed local snapshot must never be published: with --overwrite it could
+    replace the succeeded manifest that latest.json names (PR review finding)."""
+    good = legacy_tree(tmp_path / "data")
+    upload(store, good)  # the date is published and latest.json points at it
+    before = sorted(o.key for o in store.list(""))
+
+    local_root, local, report = _local_pipeline_run(
+        tmp_path, regions="us-east-1,eu-west-1", behaviors={"eu-west-1": "permanent_error"}
+    )
+    assert report.snapshot_status == "partial"
+    with pytest.raises(backfill.BackfillPrecondition, match="not succeeded"):
+        upload(store, local_root, overwrite=overwrite)
+    assert sorted(o.key for o in store.list("")) == before
+    assert m.read_current(store, "aws", DATE).status == "succeeded"
+

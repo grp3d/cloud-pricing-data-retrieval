@@ -75,7 +75,9 @@ def _parse_products(
     region_rows: list,
     product_rows: list,
     attribute_rows: list,
-) -> None:
+) -> set:
+    """Append this file's dimension rows; return the SKUs kept for `region`."""
+    kept_skus: set = set()
     offer_code = data.get("offerCode", "")
     publication_date = data.get("publicationDate", "")
     products = data.get("products", {})
@@ -123,6 +125,7 @@ def _parse_products(
             # this region's partition only contains this region's products.
             continue
 
+        kept_skus.add(sku)
         product_rows.append(
             {
                 "snapshot_date": snapshot_date,
@@ -146,12 +149,16 @@ def _parse_products(
                     "attribute_value": str(attr_value),
                 }
             )
+    return kept_skus
 
 
-def _parse_terms(data: dict, snapshot_date: str, price_fact_rows: list) -> int:
-    """Append price_fact rows; return how many prices were present but not numeric.
+def _parse_terms(data: dict, snapshot_date: str, price_fact_rows: list, kept_skus: set) -> int:
+    """Append price_fact rows for `kept_skus`; return how many prices were present but not
+    numeric.
 
-    Such prices are stored as null — never estimated or defaulted (constitution I).
+    Only SKUs whose product was kept for this region get price rows, so another region's
+    prices (same per-region file problem as products) never become facts here. Unparseable
+    prices are stored as null — never estimated or defaulted (constitution I).
     """
     unparseable = 0
     terms = data.get("terms", {})
@@ -160,7 +167,7 @@ def _parse_terms(data: dict, snapshot_date: str, price_fact_rows: list) -> int:
         if not isinstance(sku_map, dict):
             continue
         for offer_sku, offer_map in sku_map.items():
-            if not isinstance(offer_map, dict):
+            if offer_sku not in kept_skus or not isinstance(offer_map, dict):
                 continue
             for _, term_detail in offer_map.items():
                 term_attrs = term_detail.get("termAttributes", {})
@@ -251,7 +258,7 @@ def transform_pricing_to_parquet(request: TransformRequest) -> TransformResult:
             result.parse_failed_files.append(file_path)
             continue
 
-        _parse_products(
+        kept_skus = _parse_products(
             data,
             request.region,
             request.snapshot_date,
@@ -262,7 +269,7 @@ def transform_pricing_to_parquet(request: TransformRequest) -> TransformResult:
             product_rows,
             attribute_rows,
         )
-        result.unparseable_prices += _parse_terms(data, request.snapshot_date, price_fact_rows)
+        result.unparseable_prices += _parse_terms(data, request.snapshot_date, price_fact_rows, kept_skus)
 
     if result.unparseable_prices:
         _log(

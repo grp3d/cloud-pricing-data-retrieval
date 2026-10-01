@@ -80,6 +80,10 @@ def test_foreign_region_products_are_dropped(tmp_path):
     assert set(products["region_code"]) == {"us-east-1"}
     attributes = pd.read_parquet(_file(result, "product_attribute").local_path)
     assert "EC2-FOREIGN" not in set(attributes["sku"])
+    # Prices follow their products: no fact rows for another region's SKUs (PR review).
+    prices = pd.read_parquet(_file(result, "price_fact").local_path)
+    assert "EC2-FOREIGN" not in set(prices["sku"])
+    assert set(prices["sku"]) <= set(products["sku"])
 
 
 def test_unparseable_price_is_null_and_counted(tmp_path):
@@ -149,3 +153,20 @@ def test_rows_without_region_code_default_to_target_region(tmp_path):
     result = _run(tmp_path, region="eu-west-1", files=[str(transfer)])
     products = pd.read_parquet(_file(result, "product_dim").local_path)
     assert set(products["region_code"]) == {"eu-west-1"}
+
+
+def test_prices_for_skus_without_a_product_are_dropped(tmp_path):
+    """A term whose SKU has no product kept for this region is not a fact for this region."""
+    doc = json.load(open(_fixture_files("us-east-1")[0]))
+    sku = next(
+        k for k, v in doc["products"].items() if v["attributes"].get("regionCode") == "us-east-1"
+    )
+    orphan = json.loads(json.dumps(doc["terms"]["OnDemand"][sku]).replace(sku, "ORPHAN-SKU"))
+    doc["terms"]["OnDemand"]["ORPHAN-SKU"] = orphan
+    path = tmp_path / "pricing-AmazonEC2-us-east-1.json"
+    path.write_text(json.dumps(doc))
+    result = _run(tmp_path, files=[str(path)])
+    prices = pd.read_parquet(_file(result, "price_fact").local_path)
+    assert "ORPHAN-SKU" not in set(prices["sku"])
+    assert sku in set(prices["sku"])
+

@@ -177,6 +177,13 @@ def upload_history(
     check_clock_skew(store, settings, now)
     provider = settings.provider
     snap = find_local_snapshot(source, provider, snapshot_date)
+    # Only complete snapshots are published. A partial/failed source would otherwise (with
+    # --overwrite) replace a succeeded manifest — possibly the one latest.json names.
+    if snap.manifest is not None and snap.manifest.status != "succeeded":
+        raise BackfillPrecondition(
+            f"local snapshot {snapshot_date} is {snap.manifest.status}, not succeeded; "
+            "only complete snapshots can be uploaded"
+        )
     run_id = layout.new_run_id(now)
 
     if dry_run:

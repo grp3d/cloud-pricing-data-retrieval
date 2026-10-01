@@ -56,9 +56,11 @@ Upload one local table snapshot to the configured store (FR-038–FR-042). This 
 | Option | Default | Notes |
 |---|---|---|
 | `--snapshot-date YYYY-MM-DD` | required | |
-| `--source PATH` | `$DATA_DIRECTORY_ROOT` | This is a local root holding either the new layout (`<source>/aws/manifests/<D>/manifest.json`, used as-is) or the legacy layout (`<source>/pricing_aws/parquet/<table>/snapshot_date=<D>/…`), for which a manifest is generated. |
+| `--source PATH` | `$DATA_DIRECTORY_ROOT` | This is a local root holding either the new layout (`<source>/aws/manifests/<D>/manifest.json`, whose contents are kept while its files are uploaded under fresh keys) or the legacy layout (`<source>/pricing_aws/parquet/<table>/snapshot_date=<D>/…`), for which a manifest is generated. |
 | `--overwrite` | off | Without it, the command exits 3 before writing anything if any `parquet/*/snapshot_date=<D>/` or `manifests/<D>/` object exists in the target store. With it, it publishes a new revision that supersedes the existing data. |
 | `--dry-run` | off | Prints the manifest it would write and the files it would upload. |
+
+A new-layout source whose manifest isn't `succeeded` (partial or failed) is refused with exit 3, with or without `--overwrite`. Only complete snapshots are published.
 
 ## `raw list`
 
