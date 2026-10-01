@@ -1,0 +1,79 @@
+# On-demand pipeline runs in prod (FR-004): a full or partial run, a transform-only
+# rebuild, or retention (optionally a dry run). Starts the same Fargate task as the schedule.
+name: run-pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: What to run
+        type: choice
+        options: [run, transform-only, retention]
+        default: run
+      snapshot_date:
+        description: Snapshot date YYYY-MM-DD (blank = today, UTC)
+        type: string
+        default: ""
+      regions:
+        description: Comma-separated regions (blank = all configured)
+        type: string
+        default: ""
+      dry_run:
+        description: Retention only — report what would be deleted
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  run-task:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_RUN_PROD }}
+          aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: true   # public repo: hide the account ID in all later log lines
+      - name: build command
+        id: cmd
+        env:
+          MODE: ${{ inputs.mode }}
+          DATE: ${{ inputs.snapshot_date }}
+          REGIONS: ${{ inputs.regions }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          case "$MODE" in
+            retention)      args='["retention"]'; [ "$DRY_RUN" = true ] && args='["retention","--dry-run"]' ;;
+            transform-only) args='["run","--trigger","manual","--transform-only"]' ;;
+            *)              args='["run","--trigger","manual"]' ;;
+          esac
+          if [ "$MODE" != retention ]; then
+            [ -n "$DATE" ] && args=$(jq -c --arg d "$DATE" '. + ["--snapshot-date", $d]' <<< "$args")
+            [ -n "$REGIONS" ] && args=$(jq -c --arg r "$REGIONS" '. + ["--regions", $r]' <<< "$args")
+          fi
+          overrides=$(jq -c --argjson c "$args" '{containerOverrides: [{name: "pipeline", command: $c}]}' <<< '{}')
+          echo "overrides=$overrides" >> "$GITHUB_OUTPUT"
+          echo "Command: $args"
+      - name: run task
+        env:
+          CLUSTER: ${{ vars.PIPELINE_CLUSTER_ARN }}
+          FAMILY: ${{ vars.PIPELINE_TASK_FAMILY }}
+          SUBNETS: ${{ vars.PIPELINE_SUBNET_IDS }}        # comma-separated
+          SG: ${{ vars.PIPELINE_SECURITY_GROUP_ID }}
+          LOG_GROUP: ${{ vars.PIPELINE_LOG_GROUP }}
+          OVERRIDES: ${{ steps.cmd.outputs.overrides }}
+        run: |
+          # run-task can succeed (HTTP 200) yet return a `failures` list instead of a task.
+          response=$(aws ecs run-task --cluster "$CLUSTER" --task-definition "$FAMILY" --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=ENABLED}" \
+            --overrides "$OVERRIDES")
+          task=$(jq -er '.tasks[0].taskArn // empty' <<< "$response") || {
+            echo "::error::ECS failed to start the pipeline task: $(jq -c '.failures // []' <<< "$response")"
+            exit 1
+          }
+          echo "Started $task"
+          id=${task##*/}
+          region=$(aws configure get region)
+          echo "Logs: https://${region}.console.aws.amazon.com/cloudwatch/home?region=${region}#logsV2:log-groups/log-group/$(jq -rn --arg g "$LOG_GROUP" '$g|@uri')/log-events/run%2Fpipeline%2F${id}"

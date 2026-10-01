@@ -80,3 +80,17 @@ desktop.ini
 *.njsproj
 *.sln
 *.swp
+
+# ==========================================
+# 7. Pipeline local data, IaC state and plans (feature 003)
+# ==========================================
+.localdata/
+/pipeline/
+infra/**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+plan.json
+result.json
+.env*
+infra/**/.build/
