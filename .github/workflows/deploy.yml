@@ -36,7 +36,7 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       sha: ${{ steps.release.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # full history and tags, for the on-main check
       - id: release
@@ -62,10 +62,10 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [resolve]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.tag }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
           cache: pip
@@ -82,10 +82,10 @@ jobs:
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
       RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.tag }}
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_APPLY_PROD }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -104,11 +104,11 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
       - if: steps.image.outputs.exists != 'true'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
       - if: steps.image.outputs.exists != 'true'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - if: steps.image.outputs.exists != 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/arm64,linux/amd64   # Fargate (Graviton) and amd64 home servers
@@ -121,7 +121,7 @@ jobs:
             IMAGE_TAG=${{ env.RELEASE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           tofu_wrapper: false

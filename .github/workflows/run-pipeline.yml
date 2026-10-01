@@ -31,7 +31,7 @@ jobs:
   run-task:
     runs-on: ubuntu-24.04
     steps:
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_RUN_PROD }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -75,5 +75,5 @@ jobs:
           }
           echo "Started $task"
           id=${task##*/}
-          region=$(aws configure get region)
+          region=$AWS_REGION   # set by configure-aws-credentials; `aws configure get` only reads config files
           echo "Logs: https://${region}.console.aws.amazon.com/cloudwatch/home?region=${region}#logsV2:log-groups/log-group/$(jq -rn --arg g "$LOG_GROUP" '$g|@uri')/log-events/run%2Fpipeline%2F${id}"

@@ -7,6 +7,8 @@ This stack creates the resources that exist once per AWS account and serve every
   globally unique name without your account ID, for example `cloud-pricing-shared-tfstate-<random>`
 - the GitHub Actions OIDC provider and per-environment CI roles (`github_oidc.tf`)
 - the account budget `cloud-pricing-shared-budget` (`budget.tf`)
+- the ECS service-linked role `AWSServiceRoleForECS`, which Fargate tasks need to start
+  (`service_linked_roles.tf`)
 
 Apply it from a laptop with admin credentials. It's the only stack that isn't applied from CI.
 
