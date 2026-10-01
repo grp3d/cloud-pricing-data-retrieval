@@ -11,6 +11,7 @@ All commands read [configuration](./configuration.md) from environment variables
 | `0` | Completed and reported. This includes `partial`/`failed` snapshot outcomes and a refused run, because those are reported by alert, not by exit code. |
 | `2` | Invalid settings or arguments. Nothing was changed. |
 | `3` | Precondition not met. Nothing was changed. Used by `upload-history` when the target exists without `--overwrite`, by `transform-only` when raw data is purged, and by `raw download` when a snapshot is missing. |
+| `124` | The run hit `RUN_TIMEOUT_MINUTES`. The process stops immediately so it can't outlive its claim, after a best-effort `RUN CRASHED` alert. The claim expires on its own. |
 | other non-zero | Unhandled crash. The process first makes a best-effort attempt to send a `RUN CRASHED` alert, wherever it runs (FR-057). In the cloud, the ECS task-stopped rule also catches kills and OOMs. |
 
 ---
@@ -68,6 +69,8 @@ Output columns: `snapshot_date`, `region`, `run_id`, `file_count`, `bytes`, `sto
 ## `raw download`
 
 Copies one raw snapshot to a local directory (FR-025).
+
+Files are written to `<dest>/<region>/<run_id>/`, so runs of the same region never overwrite each other.
 
 | Option | Default | Notes |
 |---|---|---|

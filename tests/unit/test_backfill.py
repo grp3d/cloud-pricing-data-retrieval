@@ -74,7 +74,7 @@ def test_never_uploads_raw(store, tmp_path):
     assert list(store.list("aws/raw/")) == []
 
 
-def test_new_layout_manifest_is_used_as_is(store, tmp_path):
+def _local_pipeline_run(tmp_path):
     from src.pipeline.runner import RunRequest, run_snapshot
     from src.pipeline.storage import open_storage
     from tests.helpers.fake_pricing import FakePricingSource
@@ -87,18 +87,74 @@ def test_new_layout_manifest_is_used_as_is(store, tmp_path):
         store=local, downloader=FakePricingSource(), now=lambda: NOW, sleep=lambda s: None,
         work_dir=str(tmp_path / "work"),
     )
+    return local_root, local, report
+
+
+def _files_by_identity(man):
+    """(table, region, sha256, rows) for every data file: what must survive re-keying."""
+    return sorted(
+        (table, region, f.sha256, f.row_count)
+        for table, t in man.tables.items()
+        for region, r in t.regions.items()
+        for f in r.files
+    )
+
+
+def test_new_layout_manifest_is_used_with_fresh_keys(store, tmp_path):
+    """The local manifest's contents are kept, but uploaded files get a fresh run ID and new
+    keys, so a published file is never overwritten (FR-043; PR review finding)."""
+    local_root, local, report = _local_pipeline_run(tmp_path)
     original = m.read_current(local, "aws", DATE)
 
     result = upload(store, local_root)
     assert result["source_layout"] == "manifest"
     man = m.read_current(store, "aws", DATE)
-    assert man.run_id == report.run_id  # the local manifest, not a generated one
-    assert m.active_file_paths(man) == m.active_file_paths(original)
+    assert man.run_id != report.run_id
+    assert _files_by_identity(man) == _files_by_identity(original)  # same data, same stats
+    for table in man.tables.values():
+        for region in table.regions.values():
+            assert region.written_by_run == man.run_id
+            for f in region.files:
+                assert man.run_id in f.path
     assert man.raw == {}  # raw data stays local (FR-042)
     assert list(store.list("aws/raw/")) == []
     for path in m.active_file_paths(man):
-        assert store.get_bytes(path) == local.get_bytes(path)
+        assert store.head(path).size > 0
     assert_valid_contract(store)
+
+
+def test_new_layout_overwrite_never_reuses_keys(store, tmp_path):
+    local_root, _, _ = _local_pipeline_run(tmp_path)
+    upload(store, local_root)
+    rev1 = m.read_current(store, "aws", DATE)
+    before = {p: store.get_bytes(p) for p in m.active_file_paths(rev1)}
+
+    upload(store, local_root, overwrite=True)
+    rev2 = m.read_current(store, "aws", DATE)
+    assert rev2.revision == 2
+    assert m.active_file_paths(rev2).isdisjoint(m.active_file_paths(rev1))
+    for path, data in before.items():  # revision 1's files are untouched
+        assert store.get_bytes(path) == data
+    assert_valid_contract(store)
+
+
+def test_no_overwrite_is_rechecked_after_taking_the_claim(store, tmp_path, monkeypatch):
+    """Another run may publish the date between the first check and acquiring the claim
+    (PR review finding). The upload must then refuse, not overwrite."""
+    src = legacy_tree(tmp_path / "data")
+    real_held_claim = backfill.claims.held_claim
+    published = layout.manifest_key("aws", DATE)
+
+    def publish_then_claim(*args, **kwargs):
+        store.put_bytes(published, b"published by another run")
+        return real_held_claim(*args, **kwargs)
+
+    monkeypatch.setattr(backfill.claims, "held_claim", publish_then_claim)
+    with pytest.raises(backfill.BackfillPrecondition, match="already exists"):
+        upload(store, src)
+    assert store.get_bytes(published) == b"published by another run"
+    assert list(store.list("aws/parquet/")) == []
+    assert store.head(layout.claim_key("aws", DATE)) is None  # claim released
 
 
 @pytest.mark.parametrize("existing", ["parquet", "manifest"])

@@ -96,10 +96,32 @@ class _Deadline:
     def __init__(self, now: Callable[[], dt.datetime], minutes: int):
         self._now = now
         self._end = now() + dt.timedelta(minutes=minutes)
+        self.expired = False  # set by the hard-timeout watchdog
 
     def check(self) -> None:
-        if self._now() > self._end:
+        if self.expired or self._now() > self._end:
             raise RunTimeout("run exceeded RUN_TIMEOUT_MINUTES")
+
+
+EXIT_TIMEOUT = 124
+
+
+def _hard_exit_on_timeout(report: "RunReport", notifier, settings) -> None:
+    """Default timeout action: stop the whole process.
+
+    Work that is blocked (a hung download, say) never reaches a deadline check, so the only
+    way to guarantee the run can't outlive its claim (RUN_CLAIM_TTL_MINUTES >
+    RUN_TIMEOUT_MINUTES) is to end the process. The claim is left to expire; nothing writes
+    after this point. On Fargate the non-zero exit also raises TASK CRASHED.
+    """
+    logger.error(f"run {report.run_id} exceeded RUN_TIMEOUT_MINUTES; exiting with {EXIT_TIMEOUT}")
+    try:
+        from src.pipeline.notify import RUN_CRASHED
+
+        notifier.send(RUN_CRASHED, report, detail=f"Run exceeded RUN_TIMEOUT_MINUTES ({settings.run_timeout_minutes}).")
+    except Exception:
+        logger.exception("could not send the timeout alert")
+    os._exit(EXIT_TIMEOUT)
 
 
 class _SnapshotRun:
@@ -328,6 +350,8 @@ def run_snapshot(
     work_dir: Optional[str] = None,
     log: Optional[Callable[[str], None]] = None,
     notifier=None,
+    timeout_seconds: Optional[float] = None,
+    on_timeout: Optional[Callable[["RunReport"], None]] = None,
 ) -> RunReport:
     store = store or open_storage(settings.storage_uri)
     check_clock_skew(store, settings, now())
@@ -339,6 +363,16 @@ def run_snapshot(
     run = _SnapshotRun(settings, request, store, downloader, now, sleep, work_dir, log or logger.info)
     report = run.report
 
+    # Hard timeout: fires even while work is blocked, unlike the deadline checks between steps.
+    def fire() -> None:
+        run.deadline.expired = True
+        (on_timeout or (lambda r: _hard_exit_on_timeout(r, notifier, settings)))(report)
+
+    watchdog = threading.Timer(
+        timeout_seconds if timeout_seconds is not None else settings.run_timeout_minutes * 60, fire
+    )
+    watchdog.daemon = True
+    watchdog.start()
     try:
         with claims.held_claim(
             store, settings.provider, run.date, run.run_id, request.trigger, settings.run_claim_ttl_minutes, now()
@@ -353,6 +387,8 @@ def run_snapshot(
         _notify(notifier, report, settings)
         logger.info(report.to_json())
         return report
+    finally:
+        watchdog.cancel()
 
     report.snapshot_status = manifest.status
     report.revision = manifest.revision

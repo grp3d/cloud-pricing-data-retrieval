@@ -15,7 +15,7 @@ All settings come from configuration and are never hard-coded (FR-035). The cont
 | `PRICING_DOWNLOAD_RETRY_MAX_RETRIES` | `3` | ≥ 0 (0 disables retries). | FR-047 |
 | `PRICING_DOWNLOAD_RETRY_STRATEGY` | `exponential_backoff` | `fixed` \| `linear_backoff` \| `exponential_backoff` | FR-047 |
 | `PRICING_DOWNLOAD_RETRY_BASE_DELAY_SECONDS` | `30` | ≥ 0 | FR-047 |
-| `RUN_TIMEOUT_MINUTES` | `120` | ≥ 1 | FR-005 |
+| `RUN_TIMEOUT_MINUTES` | `120` | ≥ 1. A hard limit: a watchdog stops the process (exit 124) even if work is blocked. | FR-005 |
 | `RUN_CLAIM_TTL_MINUTES` | `180` | Must be greater than `RUN_TIMEOUT_MINUTES`. | FR-005 |
 | `RAW_RETENTION_DAYS` | `30` | ≥ 1. Must match the lifecycle rule in S3 (the same OpenTofu variable feeds both). | FR-020 |
 | `PARQUET_WEEKLY_RETENTION_MONTHS` | `12` | ≥ 1 | FR-021 |

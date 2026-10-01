@@ -101,12 +101,25 @@ def build_backfill_manifest(
     uploads: List[Tuple[str, str]] = []
 
     if snap.layout == "manifest":
+        # Keep the local manifest's contents (status, regions, checksums, row counts), but give
+        # every file a fresh key under this upload's run ID: a published file is never
+        # overwritten, even when the same source is uploaded again with --overwrite (FR-043).
         man = snap.manifest
+        for table, entry in man.tables.items():
+            for region, regional in entry.regions.items():
+                for part, f in enumerate(regional.files):
+                    key = layout.parquet_file_key(
+                        provider, table, snap.snapshot_date, region, run_id,
+                        part=part if len(regional.files) > 1 else None,
+                    )
+                    uploads.append((os.path.join(snap.root, *f.path.split("/")), key))
+                    f.path = key
+                regional.written_by_run = run_id
+        man.run_id = run_id
         man.revision = revision
         man.previous_revision = revision - 1 if revision > 1 else None
         man.created_at = m.iso(now)  # the grace period for superseded files starts now
         man.raw = None if man.origin == "backfill" else {}  # raw data stays local (FR-042)
-        uploads = [(f.local_path, os.path.relpath(f.local_path, snap.root).replace(os.sep, "/")) for f in snap.files]
         return man, uploads
 
     per_region: Dict[str, Dict[str, List[LocalFile]]] = {}
@@ -187,6 +200,12 @@ def upload_history(
         with claims.held_claim(
             store, provider, snapshot_date, run_id, "backfill", settings.run_claim_ttl_minutes, now
         ):
+            # Re-check under the claim: another run may have published this date since the
+            # check above (FR-040).
+            if not overwrite and _target_has_data(store, provider, snapshot_date):
+                raise BackfillPrecondition(
+                    f"data for {snapshot_date} already exists in {store.uri}; use --overwrite to replace it"
+                )
             revision = m.next_revision_number(store, provider, snapshot_date)
             man, uploads = build_backfill_manifest(snap, settings, run_id=run_id, revision=revision, now=now)
             for local_path, key in uploads:  # data files first (FR-041)

@@ -116,3 +116,22 @@ def test_delete_if_match(store):
 def test_delete_if_match_missing_key_fails(store):
     with pytest.raises(PreconditionFailed):
         store.delete_if_match("claims/missing.json", "etag")
+
+
+def test_installed_botocore_supports_conditional_s3_operations():
+    """requirements.txt pins a boto3 whose S3 model has these (PR review finding)."""
+    import boto3
+
+    model = boto3.client("s3", region_name="us-east-1").meta.service_model
+    put = model.operation_model("PutObject").input_shape.members
+    delete = model.operation_model("DeleteObject").input_shape.members
+    assert "IfNoneMatch" in put and "IfMatch" in put
+    assert "IfMatch" in delete
+
+
+def test_requirements_pin_boto3_minimum():
+    import re
+
+    text = open("requirements.txt").read()
+    match = re.search(r"^boto3>=([0-9.]+)", text, re.M)
+    assert match and tuple(int(x) for x in match.group(1).split(".")) >= (1, 43, 85)

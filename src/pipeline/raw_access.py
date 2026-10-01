@@ -80,24 +80,26 @@ def download_raw(
     regions: Optional[List[str]] = None,
     decompress: bool = False,
 ) -> List[str]:
-    """Copy one snapshot's raw files to `dest/<region>/`. Uses the runs the current
-    manifest records; without a manifest, every stored run for the date."""
+    """Copy one snapshot's raw files to `dest/<region>/<run_id>/`. Uses the runs the current
+    manifest records; without a manifest, every stored run for the date. The run ID in
+    the path keeps files from different runs of a region apart."""
     man = m.read_current(store, provider, snapshot_date)
+    runs: Dict[Tuple[str, str], str] = {}  # (region, run_id) -> prefix
     if man and man.raw:
-        prefixes = {r: e.location for r, e in man.raw.items()}
+        for region, entry in man.raw.items():
+            runs[(region, entry.location.rstrip("/").rsplit("/", 1)[-1])] = entry.location
     else:
-        prefixes = {}
         for obj in store.list(layout.raw_date_prefix(provider, snapshot_date)):
             ident = _parse_key(provider, obj.key)
             if ident:
-                prefixes.setdefault(ident[1], layout.raw_run_prefix(provider, *ident))
+                runs.setdefault((ident[1], ident[2]), layout.raw_run_prefix(provider, *ident))
     if regions:
-        prefixes = {r: p for r, p in prefixes.items() if r in regions}
+        runs = {k: p for k, p in runs.items() if k[0] in regions}
 
     written = []
-    for region, prefix in sorted(prefixes.items()):
+    for (region, run_id), prefix in sorted(runs.items()):
         for obj in store.list(prefix):
-            target = os.path.join(dest, region, os.path.basename(obj.key))
+            target = os.path.join(dest, region, run_id, os.path.basename(obj.key))
             store.download_file(obj.key, target)
             if decompress and target.endswith(".zst"):
                 plain = target[: -len(".zst")]

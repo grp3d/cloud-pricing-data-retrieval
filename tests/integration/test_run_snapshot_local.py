@@ -271,3 +271,81 @@ def test_skip_retention_flag(local_store, tmp_path):
     run(local_store, FakePricingSource(), tmp_path)
     report = run(local_store, FakePricingSource(), tmp_path, skip_retention=True)
     assert report.retention == {"skipped": True}
+
+
+# --- hard run timeout (PR review finding) ----------------------------------------------
+
+import threading  # noqa: E402
+
+
+def test_hard_timeout_fires_while_work_is_blocked(local_store, tmp_path):
+    """A download that hangs must not let the run outlive its timeout (and so its claim):
+    the watchdog fires even though no step boundary is reached."""
+    release = threading.Event()
+    fired = []
+
+    class HangingSource(FakePricingSource):
+        def download_region(self, region, dest_dir):
+            release.wait(10)  # stands in for a hung network call
+            return super().download_region(region, dest_dir)
+
+    def on_timeout(report):
+        fired.append(report.run_id)
+        release.set()  # let the test finish; in production the process exits here
+
+    with pytest.raises(Exception):
+        run_snapshot(
+            settings_for(local_store),
+            RunRequest(snapshot_date=DATE, regions=["us-east-1"]),
+            store=local_store,
+            downloader=HangingSource(),
+            now=lambda: T0,
+            sleep=lambda s: None,
+            work_dir=str(tmp_path / "work"),
+            timeout_seconds=0.3,
+            on_timeout=on_timeout,
+        )
+    assert len(fired) == 1
+
+
+def test_hard_timeout_is_cancelled_after_a_normal_run(local_store, tmp_path):
+    fired = []
+    report = run_snapshot(
+        settings_for(local_store),
+        RunRequest(snapshot_date=DATE, regions=["us-east-1"]),
+        store=local_store,
+        downloader=FakePricingSource(),
+        now=lambda: T0,
+        sleep=lambda s: None,
+        work_dir=str(tmp_path / "work"),
+        timeout_seconds=0.5,
+        on_timeout=lambda r: fired.append(r.run_id),
+    )
+    threading.Event().wait(0.8)
+    assert report.outcome == "completed" and fired == []
+
+
+def test_default_timeout_action_ends_the_process(tmp_path):
+    """In production nothing may keep writing after the timeout: the process exits 124."""
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent(
+        f"""
+        import datetime as dt, threading
+        from src.pipeline.config import PipelineSettings
+        from src.pipeline.runner import RunRequest, run_snapshot
+        from tests.helpers.fake_pricing import FakePricingSource
+
+        class Hang(FakePricingSource):
+            def download_region(self, region, dest_dir):
+                threading.Event().wait(30)
+
+        settings = PipelineSettings.from_env({{"PIPELINE_STORAGE_URI": "file://{tmp_path}/store"}})
+        run_snapshot(settings, RunRequest(snapshot_date="2026-10-05", regions=["us-east-1"]),
+                     downloader=Hang(), work_dir="{tmp_path}/work", timeout_seconds=0.5)
+        """
+    )
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=20)
+    assert proc.returncode == 124, proc.stderr[-2000:]

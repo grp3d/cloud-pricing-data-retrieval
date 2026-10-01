@@ -75,3 +75,16 @@ def test_download_compressed_and_decompressed(store, tmp_path):
 def test_download_missing_snapshot_raises(store, tmp_path):
     with pytest.raises(raw_access.RawNotFound):
         raw_access.download_raw(store, "aws", "2020-01-06", str(tmp_path))
+
+
+def test_download_without_manifest_includes_every_run(store, tmp_path):
+    """No manifest: every stored run for the date is downloaded, without name collisions
+    (PR review finding)."""
+    runs = ["20261005T130000Z-aaaaaa", "20261005T140000Z-bbbbbb"]
+    for run in runs:
+        key = layout.raw_file_key("aws", "2026-09-28", "us-east-1", run, "pricing-AmazonS3-us-east-1.json")
+        store.put_bytes(key, zstd.compress(run.encode()))
+    files = raw_access.download_raw(store, "aws", "2026-09-28", str(tmp_path / "out"), decompress=True)
+    assert len(files) == 2
+    assert sorted(open(f).read() for f in files) == runs
+    assert all(f"/us-east-1/{run}/" in f for f, run in zip(sorted(files), runs))

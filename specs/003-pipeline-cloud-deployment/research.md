@@ -92,7 +92,7 @@ Data files are written to a local staging directory first, then uploaded. Size, 
 **Decision**:
 - **Claim object**: `<provider>/claims/<snapshot_date>.json`, containing `{run_id, trigger, acquired_at, expires_at}`.
 - **Acquire**: `put_if_absent`. If the claim exists and has not expired, the run is **refused immediately** (exit 0, reason "run already in progress", with an alert if `--trigger scheduled`). If it has expired, it is taken over with `put_if_match` on the old claim's etag, so only one of several racing runs wins.
-- **TTL**: `RUN_CLAIM_TTL_MINUTES` (default 180). This is always greater than `RUN_TIMEOUT_MINUTES` (default 120), which the runner enforces with an in-process deadline, and settings validation rejects a TTL ≤ timeout.
+- **TTL**: `RUN_CLAIM_TTL_MINUTES` (default 180). This is always greater than `RUN_TIMEOUT_MINUTES` (default 120), which the runner enforces with an in-process deadline, and settings validation rejects a TTL ≤ timeout. The timeout is enforced by a watchdog timer, not only by checks between steps: if work blocks (a hung download), the watchdog stops the process with exit 124 (after a best-effort alert), so a run can never outlive its claim and let another run in (PR review, 2026-10-01).
 - **Release**: read the claim and its etag, verify our `run_id`, then delete it with `delete_if_match` on that etag (S3 `DeleteObject` with `If-Match`; a version check under `flock` locally). If another run took over the expired claim in between, the delete fails and its claim survives. This closes a race found in PR review (2026-09-30); the earlier read-then-delete could remove another run's claim.
 - **Retention scope**: retention on *other* dates tries to take that date's claim and skips the date if it's busy.
 
