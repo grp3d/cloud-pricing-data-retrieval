@@ -109,3 +109,15 @@ run "bucket_name_is_validated" {
 
   expect_failures = [var.data_bucket_name]
 }
+
+run "read_policy_lists_only_published_prefixes" {
+  command = plan
+
+  assert {
+    condition = (
+      length(data.aws_iam_policy_document.data_read.statement[1].condition) == 1 &&
+      toset(one(data.aws_iam_policy_document.data_read.statement[1].condition).values) == toset(["aws/manifests/*", "aws/parquet/*"])
+    )
+    error_message = "Readers may list only manifests/ and parquet/ (not raw files, claims or internals)."
+  }
+}

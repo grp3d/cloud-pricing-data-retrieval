@@ -137,10 +137,20 @@ def try_acquire(
 
 
 def release(store: Storage, provider: str, snapshot_date: str, run_id: str) -> None:
-    """Delete the claim if (and only if) this run still owns it."""
+    """Delete the claim if (and only if) this run still owns it.
+
+    The delete is conditional on the version this run just read, so if another run took
+    the claim over in between (possible once this run has outlived its TTL), the delete
+    fails and the other run's claim stays in place.
+    """
     key = layout.claim_key(provider, snapshot_date)
-    if _holder(store, key) == run_id:
-        store.delete(key)
+    info = store.head(key)
+    if info is None or _holder(store, key) != run_id:
+        return
+    try:
+        store.delete_if_match(key, info.etag)
+    except PreconditionFailed:
+        pass  # replaced since we looked: it's no longer ours to delete
 
 
 @contextmanager

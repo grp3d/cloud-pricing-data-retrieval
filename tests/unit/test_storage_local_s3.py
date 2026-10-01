@@ -99,3 +99,20 @@ def test_s3_prefix_is_applied_transparently(s3_store):
 def test_is_local_flag(local_store, s3_store):
     assert local_store.is_local is True
     assert s3_store.is_local is False
+
+
+def test_delete_if_match(store):
+    """Atomic delete-if-unchanged backs a safe claim release (PR review finding)."""
+    store.put_bytes("claims/x.json", b"v1")
+    stale = store.head("claims/x.json").etag
+    store.put_bytes("claims/x.json", b"v2")
+    with pytest.raises(PreconditionFailed):
+        store.delete_if_match("claims/x.json", stale)
+    assert store.get_bytes("claims/x.json") == b"v2"
+    store.delete_if_match("claims/x.json", store.head("claims/x.json").etag)
+    assert store.head("claims/x.json") is None
+
+
+def test_delete_if_match_missing_key_fails(store):
+    with pytest.raises(PreconditionFailed):
+        store.delete_if_match("claims/missing.json", "etag")

@@ -2,8 +2,9 @@
 Storage abstraction over a local directory or an S3 bucket/prefix (FR-008, research R4).
 
 Keys are always `/`-separated and relative to the storage root. Both backends support
-the conditional writes the run claim and latest.json compare-and-swap rely on:
-`put_if_absent` (S3 If-None-Match: *) and `put_if_match` (S3 If-Match: <etag>).
+the conditional operations the run claim and latest.json compare-and-swap rely on:
+`put_if_absent` (S3 If-None-Match: *), `put_if_match` and `delete_if_match`
+(S3 If-Match: <etag>).
 """
 
 import datetime as dt
@@ -38,6 +39,7 @@ class Storage(Protocol):
     def put_file(self, key: str, path: str) -> None: ...
     def put_if_absent(self, key: str, data: bytes) -> None: ...
     def put_if_match(self, key: str, data: bytes, etag: str) -> None: ...
+    def delete_if_match(self, key: str, etag: str) -> None: ...
     def get_bytes(self, key: str) -> bytes: ...
     def download_file(self, key: str, path: str) -> None: ...
     def head(self, key: str) -> Optional[ObjectInfo]: ...
@@ -119,6 +121,18 @@ class LocalStorage:
             if current != etag:
                 raise PreconditionFailed(key)
             os.replace(self._write_atomic(path, data), path)
+
+    def delete_if_match(self, key: str, etag: str) -> None:
+        path = self._path(key)
+        with self._cas_lock():
+            try:
+                with open(path, "rb") as fh:
+                    current = self._etag(fh.read())
+            except FileNotFoundError:
+                raise PreconditionFailed(key)
+            if current != etag:
+                raise PreconditionFailed(key)
+            os.remove(path)
 
     def get_bytes(self, key: str) -> bytes:
         with open(self._path(key), "rb") as fh:
@@ -238,6 +252,16 @@ class S3Storage:
 
         try:
             self._client.put_object(Bucket=self.bucket, Key=self._key(key), Body=data, IfMatch=etag)
+        except ClientError as e:
+            if self._lost_condition(e) or self._not_found(e):
+                raise PreconditionFailed(key)
+            raise
+
+    def delete_if_match(self, key: str, etag: str) -> None:
+        from botocore.exceptions import ClientError
+
+        try:
+            self._client.delete_object(Bucket=self.bucket, Key=self._key(key), IfMatch=etag)
         except ClientError as e:
             if self._lost_condition(e) or self._not_found(e):
                 raise PreconditionFailed(key)

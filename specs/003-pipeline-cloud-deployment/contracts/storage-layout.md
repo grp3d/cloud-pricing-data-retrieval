@@ -31,6 +31,7 @@
 5. **Optionally verify** each file's `bytes` and `sha256` before use.
 6. **Ignore** `claims/` and `revisions/`. They are internal and history, not a data source.
 7. **Re-read the manifest** if you hold it longer than `SUPERSEDED_FILE_GRACE_MINUTES`. Files of a superseded revision may be deleted after that time.
+8. **Treat "access denied" like "not found"** for a missing key (for example, `latest.json` before the first snapshot). The read-only policy can list only `manifests/` and `parquet/`, so S3 reports a missing key as access denied.
 
 ## Producer guarantees (this repo)
 

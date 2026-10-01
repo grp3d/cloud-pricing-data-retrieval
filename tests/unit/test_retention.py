@@ -280,3 +280,46 @@ def test_s3_raw_left_to_lifecycle_rules(s3_store):
     result = run(s3_store)
     assert result["raw_local"] == []
     assert s3_store.head(key) is not None
+
+
+def test_local_raw_of_busy_date_is_kept(local_store):
+    """A transform-only run holding a date's claim may be reading that date's raw files;
+    another run's retention must not delete them (PR review finding)."""
+    busy, idle = "2026-08-01", "2026-08-08"
+    keys = {}
+    for date in (busy, idle):
+        keys[date] = layout.raw_file_key(
+            "aws", date, "us-east-1", _run_id(date), "pricing-AmazonS3-us-east-1.json"
+        )
+        local_store.put_bytes(keys[date], b"zst")
+        stamp = (NOW - dt.timedelta(days=40)).timestamp()
+        os.utime(os.path.join(local_store.root, *keys[date].split("/")), (stamp, stamp))
+    claims.acquire(local_store, "aws", busy, "20261005T120000Z-aaaaaa", "manual", 180, NOW)
+
+    plan = run(local_store, dry_run=True)
+    assert plan["raw_local"] == [keys[idle]]
+    assert busy in plan["skipped_busy_dates"]
+
+    result = run(local_store)
+    assert local_store.head(keys[busy]) is not None
+    assert local_store.head(keys[idle]) is None
+    assert busy in result["skipped_busy_dates"]
+
+
+def test_local_raw_deletion_respects_a_claim_taken_after_planning(local_store):
+    """Raw files are deleted inside the per-date claim, so a run that starts between planning
+    and applying still protects its raw input."""
+    date = "2026-08-01"
+    key = layout.raw_file_key("aws", date, "us-east-1", _run_id(date), "pricing-AmazonS3-us-east-1.json")
+    local_store.put_bytes(key, b"zst")
+    stamp = (NOW - dt.timedelta(days=40)).timestamp()
+    os.utime(os.path.join(local_store.root, *key.split("/")), (stamp, stamp))
+    s = settings()
+    plan = retention.plan_retention(local_store, s, NOW, run_id=RETENTION_RUN)
+    assert plan["raw_local"] == [key]
+
+    claims.acquire(local_store, "aws", date, "20261005T120000Z-bbbbbb", "manual", 180, NOW)
+    result = retention.apply_retention(local_store, s, plan, NOW, sleep=lambda x: None, run_id=RETENTION_RUN)
+    assert local_store.head(key) is not None
+    assert date in result["skipped_busy_dates"]
+    assert result["raw_deleted"] == [] and retention.summarize(result)["raw_deleted_local"] == 0

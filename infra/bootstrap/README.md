@@ -10,38 +10,32 @@ This stack creates the resources that exist once per AWS account and serve every
 
 Apply it from a laptop with admin credentials. It's the only stack that isn't applied from CI.
 
-## First apply (local state)
+## Working with this stack
+
+Its state is in `s3://cloud-pricing-shared-tfstate-g08a9i/shared/bootstrap.tfstate`:
 
 ```bash
 cd infra/bootstrap
-tofu init
-tofu apply \
-  -var state_bucket_name=cloud-pricing-shared-tfstate-g08a9i \
-  -var github_repository=grp3d/cloud-pricing-data-retrieval \
-  -var github_owner_id=5554338 \
-  -var github_repo_id=1378571708 \
-  -var budget_email=<you@example.com>
+tofu init -backend-config=../envs/shared.backend.hcl
+tofu plan     # with the TF_VAR_* values below; a routine plan says "No changes"
+tofu apply
 ```
 
-## Move its state into the bucket it just created
+Typical reasons to apply: adding an environment to `environments`, changing the budget, or
+changing the CI roles' trust (see [`../README.md`](../README.md#oidc-trust-who-may-assume-which-aws-role)).
 
-1. Put the state bucket name into `infra/envs/shared.backend.hcl` and
-   `infra/envs/prod.backend.hcl` (`bucket = "..."`), and into `state_bucket_name` in
-   `infra/envs/prod.tfvars`. The pipeline stack uses it to read the data stack's outputs.
-2. In `versions.tf`, uncomment `backend "s3" {}`.
-3. Migrate:
+## Building a new account
 
-```bash
-tofu init -migrate-state -backend-config=../envs/shared.backend.hcl
-```
+The state bucket is created by this stack, so the very first apply can't store its state there
+yet. Only for a brand-new account:
 
-4. Delete the local `terraform.tfstate*` files once `tofu plan` shows no changes.
-
-## Later changes
-
-Run `tofu apply` from this directory, for example to add an environment to `environments` or to
-change the budget thresholds. Keep the `-var` values from the first apply, or set them as
-`TF_VAR_*` environment variables.
+1. In `versions.tf`, comment out `backend "s3" {}`.
+2. `tofu init` and `tofu apply` with the values below. The state is local at first.
+3. Put the state bucket name into `infra/envs/*.backend.hcl` (`bucket`) and `infra/envs/*.tfvars`
+   (`state_bucket_name`).
+4. Uncomment `backend "s3" {}`, then move the state into the bucket:
+   `tofu init -migrate-state -backend-config=../envs/shared.backend.hcl`. Answer `yes` to copy it.
+5. Once `tofu plan` shows no changes, delete the local `terraform.tfstate*` files.
 
 ## Values to keep for every later apply
 

@@ -65,9 +65,14 @@ jobs:
           LOG_GROUP: ${{ vars.PIPELINE_LOG_GROUP }}
           OVERRIDES: ${{ steps.cmd.outputs.overrides }}
         run: |
-          task=$(aws ecs run-task --cluster "$CLUSTER" --task-definition "$FAMILY" --launch-type FARGATE \
+          # run-task can succeed (HTTP 200) yet return a `failures` list instead of a task.
+          response=$(aws ecs run-task --cluster "$CLUSTER" --task-definition "$FAMILY" --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=ENABLED}" \
-            --overrides "$OVERRIDES" --query 'tasks[0].taskArn' --output text)
+            --overrides "$OVERRIDES")
+          task=$(jq -er '.tasks[0].taskArn // empty' <<< "$response") || {
+            echo "::error::ECS failed to start the pipeline task: $(jq -c '.failures // []' <<< "$response")"
+            exit 1
+          }
           echo "Started $task"
           id=${task##*/}
           region=$(aws configure get region)

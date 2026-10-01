@@ -54,6 +54,11 @@ def _parquet_dates(store: Storage, provider: str) -> Set[str]:
     return dates
 
 
+def _raw_date(provider: str, key: str) -> str:
+    """Snapshot date of a raw key: <provider>/raw/<date>/<region>/<run_id>/<file>."""
+    return key[len(layout.raw_prefix(provider)):].split("/", 1)[0]
+
+
 def _date_files(store: Storage, provider: str, date: str):
     for table in layout.TABLES:
         yield from store.list(layout.parquet_date_prefix(provider, table, date))
@@ -93,9 +98,18 @@ def plan_retention(
     latest = read_latest(store, provider)
     latest_date = latest["snapshot_date"] if latest else None
 
+    # Local raw files past their retention, by snapshot date (S3 raw data is expired by
+    # lifecycle rules instead). Collected first so busy dates cover them too.
+    raw_expired: Dict[str, List[str]] = {}
+    if store.is_local:
+        max_age = dt.timedelta(days=settings.raw_retention_days)
+        for obj in store.list(layout.raw_prefix(provider)):
+            if obj.last_modified + max_age < now:
+                raw_expired.setdefault(_raw_date(provider, obj.key), []).append(obj.key)
+
     busy = {
         d: holder
-        for d in set(manifest_dates) | _parquet_dates(store, provider)
+        for d in set(manifest_dates) | _parquet_dates(store, provider) | set(raw_expired)
         if d != own_date and (holder := _held_by_other(store, provider, d, now))
     }
 
@@ -146,13 +160,9 @@ def plan_retention(
                 {"path": obj.key, "snapshot_date": d, "eligible_at": m.iso(eligible_at), "action": action}
             )
 
-    # 3. local raw expiry (S3 raw data is expired by lifecycle rules)
-    raw_local = []
-    if store.is_local:
-        max_age = dt.timedelta(days=settings.raw_retention_days)
-        raw_local = sorted(
-            obj.key for obj in store.list(layout.raw_prefix(provider)) if obj.last_modified + max_age < now
-        )
+    # 3. local raw expiry, skipping dates another run is using (e.g. a transform-only run
+    #    reading that date's raw files)
+    raw_local = sorted(key for d, keys in raw_expired.items() if d not in busy for key in keys)
 
     return {
         "dry_run": True,
@@ -176,7 +186,7 @@ def apply_retention(
     own_date: Optional[str] = None,
 ) -> dict:
     provider = settings.provider
-    result = dict(plan, dry_run=False, deleted=[], skipped_guard=[], waited_seconds=0)
+    result = dict(plan, dry_run=False, deleted=[], raw_deleted=[], skipped_guard=[], waited_seconds=0)
     result["skipped_busy_dates"] = list(plan["skipped_busy_dates"])
 
     files = [i for i in plan["superseded"] + plan["orphans"] if i["action"] != KEEP]
@@ -192,6 +202,11 @@ def apply_retention(
         by_date.setdefault(item["snapshot_date"], []).append(item)
     purge_dates = [p["snapshot_date"] for p in plan["purge_snapshots"]]
     for d in purge_dates:
+        by_date.setdefault(d, [])
+    raw_by_date: Dict[str, List[str]] = {}
+    for key in plan["raw_local"]:
+        raw_by_date.setdefault(_raw_date(provider, key), []).append(key)
+    for d in raw_by_date:
         by_date.setdefault(d, [])
 
     def guarded_delete(date: str, key: str) -> None:
@@ -224,12 +239,13 @@ def apply_retention(
                         guarded_delete(d, obj.key)
             for item in by_date[d]:
                 guarded_delete(d, item["path"])
+            for key in raw_by_date.get(d, []):  # under the same claim as the date's other files
+                store.delete(key)
+                result["raw_deleted"].append(key)
         finally:
             if claim is not None:
                 claims.release(store, provider, d, run_id)
 
-    for key in plan["raw_local"]:
-        store.delete(key)
     result["skipped_busy_dates"] = sorted(set(result["skipped_busy_dates"]))
     return result
 
@@ -257,7 +273,7 @@ def summarize(result: dict) -> dict:
         "superseded_deleted": sum(1 for i in result["superseded"] if i["path"] in deleted),
         "orphans_deleted": sum(1 for i in result["orphans"] if i["path"] in deleted),
         "snapshots_purged": len(result["purge_snapshots"]),
-        "raw_deleted_local": len(result["raw_local"]),
+        "raw_deleted_local": len(result.get("raw_deleted", [])),
         "waited_seconds": result.get("waited_seconds", 0),
         "skipped_busy_dates": result.get("skipped_busy_dates", []),
         "skipped_guard": len(result.get("skipped_guard", [])),

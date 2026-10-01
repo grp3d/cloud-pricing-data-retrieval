@@ -93,7 +93,7 @@ Data files are written to a local staging directory first, then uploaded. Size, 
 - **Claim object**: `<provider>/claims/<snapshot_date>.json`, containing `{run_id, trigger, acquired_at, expires_at}`.
 - **Acquire**: `put_if_absent`. If the claim exists and has not expired, the run is **refused immediately** (exit 0, reason "run already in progress", with an alert if `--trigger scheduled`). If it has expired, it is taken over with `put_if_match` on the old claim's etag, so only one of several racing runs wins.
 - **TTL**: `RUN_CLAIM_TTL_MINUTES` (default 180). This is always greater than `RUN_TIMEOUT_MINUTES` (default 120), which the runner enforces with an in-process deadline, and settings validation rejects a TTL ≤ timeout.
-- **Release**: read the claim, verify our `run_id`, then delete it. There is a tiny race window, but the worst case is an early release after our own work is done.
+- **Release**: read the claim and its etag, verify our `run_id`, then delete it with `delete_if_match` on that etag (S3 `DeleteObject` with `If-Match`; a version check under `flock` locally). If another run took over the expired claim in between, the delete fails and its claim survives. This closes a race found in PR review (2026-09-30); the earlier read-then-delete could remove another run's claim.
 - **Retention scope**: retention on *other* dates tries to take that date's claim and skips the date if it's busy.
 
 **Clock skew**: claim expiry and grace periods mix the runner's clock with S3 `LastModified`, so the runner must have a correct clock. At start-up it compares its clock with the `Date` header of an S3 response. If they differ by more than `MAX_CLOCK_SKEW_SECONDS` (default 300), it refuses to run with exit 2. This matters for off-AWS writers (R22); Fargate clocks are NTP-synced.
@@ -187,7 +187,7 @@ Locally, the same logic runs under `flock`.
 6. **Guard (FR-046)**: immediately before each delete, check the key against a *freshly re-read* active set for that date (re-read `manifest.json`). If the key is now referenced, skip it and log.
 7. **Raw data**:
    - **S3**: an **S3 lifecycle rule** expires `<provider>/raw/` after `RAW_RETENTION_DAYS` days, one rule per provider prefix, generated from the `pricing_providers` variable (`providers` is a reserved variable name in Terraform/OpenTofu).
-   - **Local**: the retention step deletes raw run folders older than `RAW_RETENTION_DAYS`, based on the `raw_stored_at` recorded in manifests or the folder mtime.
+   - **Local**: the retention step deletes raw run folders older than `RAW_RETENTION_DAYS`, based on the `raw_stored_at` recorded in manifests or the folder mtime. Raw files are grouped by snapshot date and deleted under that date's claim, so dates another run is using are skipped (PR review, 2026-09-30).
 8. **Dry run**: compute the same plan, log it, emit it as JSON with `--dry-run --output plan.json`, and skip every write and delete.
 
 **Failure handling**: A retention failure is caught. It doesn't change the snapshot status or `latest.json`, is added to the run report as `retention_error`, and sends an alert (FR-050).
