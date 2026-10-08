@@ -37,7 +37,31 @@ Research R9 was updated. After the fix, A1 succeeded with 0 failed services.
 
 ## Quickstart Parts B and C: cloud and off-AWS (T099)
 
-- [ ] **Pending deployment.** B1–B9 and C1–C5 need the AWS account setup (bootstrap apply, GitHub environment/variables), and B9/SC-001/SC-010 need 4 weeks of operation.
+**Recorded**: 2026-10-01, release `v0.0.1` (image `cloud-pricing-pipeline-prod:v0.0.1`, git `3de5345`), account region `us-east-1`. T099 stays open until B9 completes.
+
+| # | Scenario | Result |
+|---|---|---|
+| B1 | Bootstrap, GitHub setup | [x] Bootstrap applied and its state migrated to `cloud-pricing-shared-tfstate-g08a9i`. Repo OIDC subject template `["repo","context","ref"]` set via the API, and trust re-applied with the owner and repo IDs. Environment `prod` (required reviewer; refs `main`, `v*`), role ARN secrets, `AWS_REGION` and `AWS_PLAN_ENABLED`, and a ruleset on `main` (PR required, checks `test`/`docker`/`tofu`). |
+| B2 | Deploy from CI | [x] PR CI green, including the posted `tofu plan`. Merging to `main` deployed nothing. Tag `v0.0.1` → resolve, test, approval, image push, data and pipeline apply. The first deploy failed on missing permissions (see below); after the fix, the re-run succeeded. SNS subscription confirmed. |
+| B2.6 | Negative check: tag off `main` | [ ] **Skipped** (optional). The on-`main` check in `deploy.yml`'s resolve job is untested in CI. |
+| B3 | First on-demand run | [x] `run-pipeline` with 4 regions (`us-east-1`, `us-east-2`, `us-west-1`, `us-west-2`): all succeeded on the first attempt, 0 unparseable prices, about 8.5 min. Revisions 1–3 for 2026-10-01 from repeated runs; each later run superseded the previous one's files after the 5-minute grace period. `latest.json` → revision 3. `verify` exits 0. Afterwards: no running tasks, no claim left, no task network interfaces or public IPs, alarms OK, dead-letter queue empty. Rows (revision 2): price_fact 1,678,985; product_attribute 15,002,081; product_dim 581,211; service_dim 775; region_dim 148. |
+| B4 | Simulated region failure | [ ] **Skipped.** The partial → re-run path is covered locally (A2) and offline (`test_partial_then_region_rerun_succeeds`). |
+| B5 | Crash alert | [x] `run-task` with command `crash-test` (the CLI exits 2 before any claim or write): `TASK CRASHED` email received, no manifest change. The quickstart's `python -c …` override doesn't apply, because the image's entrypoint is `python -m src.pipeline`. |
+| B6 | Missed-run watchdog | [x] Quiet path only: `aws lambda invoke` on `cloud-pricing-watchdog-prod` returned no alerts. The alert path is covered by `tests/unit/test_freshness_check.py`; testing it in the cloud needs a tfvars change and a release. |
+| B7 | Retention in the cloud | [x] `mode=retention`, `dry_run=true`: plan reviewed, nothing changed. The lifecycle configuration expires `aws/raw/` after 30 days. The 5-weeks-of-raw-data check follows B9. |
+| B8 | Destroy and re-create the pipeline stack | [ ] **Deferred** to backlog R1 (`docs/backlog/003-pr-review-findings.md`): the ECR repository and its images live in the pipeline stack, so a destroy would delete them. |
+| B9 | Four weeks unattended, cost | [ ] Pending: first scheduled run Monday 2026-10-05 13:00 UTC; check about 2026-10-26 (4 succeeded dates, no alerts, under $3/month for `component=pipeline`). |
+| C1–C5 | Off-AWS writer and reader | [ ] Not run (optional; Roles Anywhere is disabled). |
+
+### Defects found by the deployment (fixed)
+
+The checks before deployment (`tofu validate`, `tofu test` with mocks, a plan using the read-only role) can't detect missing write permissions or missing account setup. The first real deploy and run found three:
+
+1. **The CI apply role lacked permissions** for actions that AWS evaluates with no resource ARN (`ecs:RegisterTaskDefinition`, `ecs:DescribeTaskDefinition`, `ecs:DeregisterTaskDefinition`, `logs:DescribeLogGroups`, `rolesanywhere:CreateTrustAnchor`, `rolesanywhere:CreateProfile`), and for `ec2:AuthorizeSecurityGroupEgress`, which creates a `security-group-rule` resource. Fixed in `infra/bootstrap/github_oidc.tf`. Where an action supports it, the scope is the `environment` request tag. The policy was then checked with the IAM policy simulator against the actions every stack resource needs, before and after the change.
+2. **The ECS service-linked role didn't exist.** ECS creates it on first use only if the caller may call `iam:CreateServiceLinkedRole`, which the apply role may not. `RunTask` failed with "Unable to assume the service linked role". It's now an account singleton in `infra/bootstrap/service_linked_roles.tf`.
+3. **`run-pipeline` failed after starting the task.** `aws configure get region` only reads config files, not the environment variables CI sets. Fixed to use `$AWS_REGION`.
+
+Also: GitHub Actions updated to their Node 24 majors, removing the Node 20 deprecation warnings.
 
 ## Constitution v1.1.1 review checklist (T098)
 
