@@ -140,6 +140,41 @@ def test_retries_follow_the_policy_then_fail():
     assert sleeps.calls == [5, 5]
 
 
+def _linking_to(n):
+    return json.dumps({"items": ["looping"], "next": f"{BASE}?page={n}"}).encode()
+
+
+def test_page_linking_back_is_retried_then_fails():
+    sleeps = Sleeps()
+    fake = _fake(3)
+    fake.route(f"{BASE}?page=2", _linking_to(1))
+    src = _source(fake, retries=2, sleep=sleeps)
+    with pytest.raises(SourceError) as err:
+        list(src.pages())
+    assert "links back" in str(err.value)
+    assert fake.urls() == [f"{BASE}?page=1"] + [f"{BASE}?page=2"] * 3
+    assert src.stats.pages == 1
+    assert sleeps.calls == [5, 5]
+
+
+def test_self_link_is_a_repeated_page():
+    fake = _fake(2)
+    fake.route(f"{BASE}?page=2", _linking_to(2))
+    src = _source(fake, retries=1)
+    with pytest.raises(SourceError):
+        list(src.pages())
+    assert src.stats.requests_made == 1 + 2
+
+
+def test_page_linking_back_once_recovers_on_retry():
+    fake = _fake(3).fail(f"{BASE}?page=2", http_error(200, body=_linking_to(1), times=1))
+    src = _source(fake)
+    pages = list(src.pages())
+    assert [p.number for p in pages] == [1, 2, 3]
+    assert pages[1].data["next"] == f"{BASE}?page=3"
+    assert src.stats.requests_made == 4
+
+
 def test_permanent_error_is_not_retried():
     fake = _fake(1).fail(f"{BASE}?page=1", http_error(403, body=b'{"reason": "API_KEY_INVALID"}'))
     src = _source(fake)

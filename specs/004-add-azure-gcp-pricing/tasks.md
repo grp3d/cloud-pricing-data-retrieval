@@ -269,3 +269,10 @@ Phases 1–3 give a working Azure provider locally with AWS unchanged. Because F
 4. US3 → lookups (Q8).
 5. US4 → deploy disabled, validate in the cloud (C1–C5), enable both (C6).
 6. US5 and Polish → recovery parity, docs, four-week record.
+
+## Phase 9: Convergence
+
+- [X] T056 Detect a repeated page in `src/pipeline/http_pages.py` `PagedHttpSource.pages()`: if `next_url` returns a URL already fetched in this listing (a GCP `nextPageToken` or Azure `NextPageLink` that repeats), treat it as a broken page (retry, then `SourceError`) instead of looping without bound; add cases for both sources to `tests/unit/test_http_pages.py`, per spec Edge Cases (pagination: repeated page) and FR-034 (missing)
+- [X] T057 Store a price whose currency differs from `PRICING_CURRENCY` as null and count it in `unparseable_prices`: Azure `unit_price`/`retail_price` and savings plan prices when `currencyCode` differs, in `src/azure/transformations.py`; GCP `list_price` when `listPrice.currencyCode` or the price's `currencyCode` differs, in `src/gcp/transformations.py`; add tests to `tests/unit/test_azure_transformations.py` and `tests/unit/test_gcp_transformations.py`, per spec Edge Cases (other currency) and FR-017 (partial)
+- [X] T058 Count an absent Azure `unitPrice` or `retailPrice` as unparseable (the GCP transform already counts an absent `listPrice`), and fail a location whose received items yield no parseable price at all, with a reason, in `src/azure/transformations.py` and `src/gcp/transformations.py`; update `data-model.md` § Azure tables notes only if wording must change; add tests, per FR-017 and spec Edge Cases (a required field disappears) (partial)
+- [ ] T059 Complete Q8 in `checklists/validation.md`: run the Azure data-transfer lookup against live data (collect `north-america` with `eastus`), then have the owner record each reference-architecture price side by side with the provider's published price for the snapshot date, per SC-002 and T053 (partial)

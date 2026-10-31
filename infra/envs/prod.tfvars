@@ -36,8 +36,8 @@ provider_runs = {
     schedule_expression = "cron(0 13 ? * MON *)"
     schedule_enabled    = false
     task_cpu            = 1024
-    task_memory         = 2048 # full-catalog transform peaks at ~0.9 GiB (measured 2026-10-30)
-    api_key_parameter   = "/cloud-pricing/prod/gcp-pricing-api-key" # created by the operator (quickstart C1)
+    task_memory         = 2048                                                     # full-catalog transform peaks at ~0.9 GiB (measured 2026-10-30)
+    api_key_parameter   = "/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key" # created by the operator (quickstart C1)
   }
 }
 ephemeral_storage_gib   = 30

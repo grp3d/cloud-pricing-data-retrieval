@@ -13,6 +13,7 @@ from src.azure.api import AzurePricesClient, filter_values, listing_url
 from src.azure.config import AzureSettings
 from src.azure.http_pages import AzurePagedSource
 from src.pipeline.config import PipelineSettings, SettingsError
+from src.pipeline.http_pages import SourceError
 from src.pipeline.retry import RetryPolicy
 from tests.helpers.fake_pricing import AZURE_FIXTURES, FakeHttpSource, http_error, http_timeout
 
@@ -90,6 +91,16 @@ def test_follows_next_page_link_without_credentials():
     pages = list(_source(fake).pages(listing_url(_settings(), "eastus")))
     assert [p.number for p in pages] == [1, 2]
     assert all(headers == {} for _, headers in fake.requests)
+
+
+def test_repeated_next_page_link_fails_instead_of_looping():
+    looping = json.dumps({"Items": [], "NextPageLink": EASTUS_P2}).encode()
+    fake = eastus_routes(FakeHttpSource()).route(EASTUS_P2, looping)
+    src = _source(fake)
+    with pytest.raises(SourceError) as err:
+        list(src.pages(listing_url(_settings(), "eastus")))
+    assert "links back" in str(err.value)
+    assert fake.urls()[1:] == [EASTUS_P2] * 4
 
 
 def test_failed_page_resumes_from_its_own_link():

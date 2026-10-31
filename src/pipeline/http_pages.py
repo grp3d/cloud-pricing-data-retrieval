@@ -3,7 +3,8 @@ Paging over an HTTP pricing source (FR-022, FR-032, FR-034; research R11).
 
 `PagedHttpSource` holds what every paged source shares: the page loop, pacing through a
 `RateLimiter`, retries that resume at the failed page (never page 1), throttling handling,
-request counting and error redaction. Providers extend it in `src/<provider>/http_pages.py`
+detection of a page that links back to an earlier one, request counting and error
+redaction. Providers extend it in `src/<provider>/http_pages.py`
 and override only what differs: how to find the next page, which headers to send, which
 errors are permanent, whether the source rejected a resume point, and what to redact.
 
@@ -16,7 +17,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, Optional, Set, Tuple
 
 from src.pipeline.rate_limit import RateLimiter
 from src.pipeline.retry import RetryPolicy
@@ -180,23 +181,45 @@ class PagedHttpSource:
                 else:
                     self._sleep(wait)
 
+    def _get_linked(self, url: str, page_number: int, seen: Set[str]) -> Tuple[Page, Optional[str]]:
+        """A page and its next URL. A page whose next link points back to a page already
+        read in this listing is broken (it would loop forever), so it is retried like any
+        other broken page and fails once the retries are used up."""
+        attempt = 0
+        while True:
+            attempt += 1
+            page = self._get(url, page_number)
+            following = self.next_url(page.data, url)
+            if following is None or following not in seen:
+                return page, following
+            if attempt > self._policy.max_retries:
+                raise SourceError(
+                    self._message(f"page {page_number} of {url} links back to a page already read, "
+                                  f"after {attempt} attempt(s)")
+                )
+            self._sleep(self._policy.delay_for(attempt))
+
     def pages(self, first_url: Optional[str] = None) -> Iterator[Page]:
         """Every page of one listing, in order. If the source rejects a resume point, the
         listing restarts once from page 1 (consumers keyed by page number overwrite)."""
         start = first_url or self.first_url()
         restarted = False
         url, number = start, 1
+        seen = {start}
         while url:
             try:
-                page = self._get(url, number)
+                page, following = self._get_linked(url, number, seen)
             except _ResumeRejected as e:
                 if restarted:
                     raise SourceError(f"resume point rejected twice; {e}") from None
                 restarted = True
                 self.stats.restarts += 1
                 url, number = start, 1
+                seen = {start}
                 continue
             self.stats.pages += 1
             yield page
-            url = self.next_url(page.data, url)
+            url = following
+            if url:
+                seen.add(url)
             number += 1

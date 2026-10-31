@@ -110,12 +110,12 @@ in the manifest. The full list is in
   `GCP_PRICING_API_KEY=...`. Pass it to Docker with
   `--env-file .env`, or load it for a venv run with `set -a; source .env; set +a`.
 - **In AWS**, it lives in the SSM `SecureString` parameter
-  `/cloud-pricing/<env>/gcp-pricing-api-key`. The operator creates and rotates it; OpenTofu never
+  `/cloud-pricing-data-retrieval/<env>/gcp-pricing-api-key`. The operator creates and rotates it; OpenTofu never
   does, so the value never enters state. ECS injects it into the GCP task only. Run this without
   echoing the key:
 
   ```bash
-  read -rs K && aws ssm put-parameter --name /cloud-pricing/prod/gcp-pricing-api-key \
+  read -rs K && aws ssm put-parameter --name /cloud-pricing-data-retrieval/prod/gcp-pricing-api-key \
     --type SecureString --value "$K" && unset K     # add --overwrite to rotate
   ```
 

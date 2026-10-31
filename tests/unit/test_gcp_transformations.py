@@ -225,3 +225,57 @@ def test_snapshot_date_and_location_columns(built):
     rows = built.rows("us-east1", "sku_price_tier")
     assert {r["snapshot_date"] for r in rows} == {dt.date(2026, 10, 30)}
     assert {r["location"] for r in rows} == {"us-east1"}
+
+
+def _edited_catalog(tmp_path, edit):
+    """Copies of the fixture pages, with `edit(price)` applied to every price entry."""
+    folder = tmp_path / "catalog"
+    folder.mkdir()
+    for path in _files():
+        with open(path) as fh:
+            page = json.load(fh)
+        for price in page.get("prices") or []:
+            edit(price)
+        (folder / os.path.basename(path)).write_text(json.dumps(page))
+    return sorted(str(p) for p in folder.iterdir())
+
+
+def _transform(files, tmp_path, location):
+    transform = GcpTransform(_settings(), [location, "global"])
+    return transform.transform_location(transform.load(files), location, str(tmp_path / location), RUN, DATE)
+
+
+def test_other_currency_list_price_is_null_and_counted(tmp_path):
+    """Edge Cases (other currency), FR-017: never converted (feature 004 T057)."""
+
+    def to_euro(price):
+        if price["name"].startswith(f"skus/{N2_CORE}/"):
+            price["currencyCode"] = "EUR"
+            for entry in price.get("skuPrices") or []:
+                for tier in (entry.get("rate") or {}).get("tiers") or []:
+                    tier["listPrice"]["currencyCode"] = "EUR"
+
+    result = _transform(_edited_catalog(tmp_path, to_euro), tmp_path, "us-east1")
+    assert result.ok
+    tables = {f.table: pq.read_table(f.local_path).to_pylist() for f in result.files}
+    core = [t for t in tables["sku_price_tier"] if t["sku_id"] == N2_CORE]
+    assert len(core) == 3 and all(t["list_price"] is None and t["currency_code"] == "EUR" for t in core)
+    others = [t for t in tables["sku_price_tier"] if t["sku_id"] != N2_CORE]
+    assert any(t["list_price"] is not None for t in others)
+    baseline = _transform(_files(), tmp_path / "baseline", "us-east1")
+    assert result.unparseable_prices == baseline.unparseable_prices + 3
+
+
+def test_location_with_no_readable_list_price_fails(tmp_path):
+    """Edge Cases (a required field disappears): the location fails with a reason (T058)."""
+
+    def drop_list_prices(price):
+        for entry in price.get("skuPrices") or []:
+            for tier in (entry.get("rate") or {}).get("tiers") or []:
+                tier.pop("listPrice", None)
+
+    files = _edited_catalog(tmp_path, drop_list_prices)
+    result = _transform(files, tmp_path, "us-east1")
+    assert not result.ok
+    assert "has a readable USD list price" in result.failure_reason()
+    assert result.unparseable_prices > 0

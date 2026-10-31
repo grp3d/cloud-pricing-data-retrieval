@@ -81,8 +81,8 @@ Partition: `azure/parquet/<table>/snapshot_date=<D>/region=<location>/part-<run_
 | `unit_of_measure` | string | `unitOfMeasure` | e.g. `1 Hour`, `1 GB/Month` |
 | `tier_minimum_units` | float64, nullable | `tierMinimumUnits` | tier lower bound; null + counted if unparseable |
 | `currency_code` | string | `currencyCode` | |
-| `unit_price` | float64, nullable | `unitPrice` | null + counted if unparseable |
-| `retail_price` | float64, nullable | `retailPrice` | null + counted if unparseable |
+| `unit_price` | float64, nullable | `unitPrice` | null + counted if absent, unparseable or the item's currency isn't `PRICING_CURRENCY` |
+| `retail_price` | float64, nullable | `retailPrice` | null + counted, as `unit_price` |
 | `effective_start_date` | timestamp[ms, UTC] | `effectiveStartDate` | |
 | `effective_end_date` | timestamp[ms, UTC], nullable | `effectiveEndDate` | present on some items |
 | `is_primary_meter_region` | bool, nullable | `isPrimaryMeterRegion` | null when absent |
@@ -98,8 +98,10 @@ Partition: `azure/parquet/<table>/snapshot_date=<D>/region=<location>/part-<run_
 | `snapshot_date` | date32 | run |
 | `location` | string | partition |
 | `term` | string | `savingsPlan[].term` (e.g. `1 Year`, `3 Years`) |
-| `unit_price` | float64, nullable | `savingsPlan[].unitPrice` |
-| `retail_price` | float64, nullable | `savingsPlan[].retailPrice` |
+| `unit_price` | float64, nullable | `savingsPlan[].unitPrice`; null + counted, as `price_item.unit_price` |
+| `retail_price` | float64, nullable | `savingsPlan[].retailPrice`; null + counted, as `price_item.unit_price` |
+
+A location where no `price_item` row has a `unit_price` or `retail_price` fails with a reason, so a source that stops publishing prices is never published as a snapshot of nulls.
 
 **Lookup example** (contract): the Linux pay-as-you-go hourly price of `Standard_D4s_v5` in `eastus` is the `price_item` row with:
 
@@ -167,7 +169,9 @@ Rate fields are null when `value_type` isn't `rate` (319 prices on 2026-10-30).
 | `snapshot_date`, `location`, `sku_id`, `consumption_model` | | joins to `sku_price` |
 | `start_amount` | decimal128(38, 9), nullable | `rate.tiers[].startAmount.value` (tier lower bound, in units of `unit_quantity` × `unit`; an absent value is `0`, as in the source's JSON encoding); null + counted if malformed |
 | `currency_code` | string | `listPrice.currencyCode` |
-| `list_price` | decimal128(38, 9), nullable | exactly `units + nanos / 10^9`; null + counted if malformed |
+| `list_price` | decimal128(38, 9), nullable | exactly `units + nanos / 10^9`; null + counted if absent, malformed, or its currency (or the price's) isn't `PRICING_CURRENCY` |
+
+A location whose SKUs have no non-null `list_price` fails with a reason.
 
 **Lookup example** (contract): the on-demand price of an `n2-standard-4` in `us-east1` is built from two SKUs:
 

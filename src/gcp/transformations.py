@@ -6,7 +6,9 @@ The catalog is parsed once per run (`load`) and every location is built from it.
 a regional or multi-regional SKU goes under each region it lists (lowercased); a global
 SKU, or one with no location, under `global`. Tables follow the source: services, SKUs
 with their taxonomies, each SKU's prices (one per consumption model) and each price's
-tiers. Money and quantities are exact decimals, never floats.
+tiers. Money and quantities are exact decimals, never floats. A list price that is
+missing, malformed or in a currency other than `PRICING_CURRENCY` is null and counted; a
+location whose SKUs yield no readable list price fails.
 """
 
 import datetime as dt
@@ -213,6 +215,7 @@ class GcpTransform(LocationTransform):
             return result
 
         day = dt.date.fromisoformat(snapshot_date)
+        currency = self.settings.pricing_currency
         services, skus, prices, tiers = [], [], [], []
         unparseable = 0
         if location == GLOBAL:
@@ -274,7 +277,11 @@ class GcpTransform(LocationTransform):
                 )
                 for tier in (rate or {}).get("tiers") or []:
                     start, bad_start = _decimal((tier.get("startAmount") or {}).get("value", "0"))
-                    amount, bad_price = list_price(tier.get("listPrice"))
+                    tier_currency = (tier.get("listPrice") or {}).get("currencyCode") or price.get("currencyCode")
+                    if price.get("currencyCode") != currency or tier_currency != currency:
+                        amount, bad_price = None, True
+                    else:
+                        amount, bad_price = list_price(tier.get("listPrice"))
                     unparseable += bad_start + bad_price
                     tiers.append(
                         {
@@ -293,6 +300,10 @@ class GcpTransform(LocationTransform):
             "items_received": len(sku_ids),
             "unlocated_rows": sum(1 for s in sku_ids if s in catalog.unlocated),
         }
+        if sku_ids and not any(t["list_price"] is not None for t in tiers):
+            result.errors.append(f"none of the {len(sku_ids)} SKUs has a readable {currency} list price")
+            result.ok = False
+            return result
         result.files = [
             write_table("sku", location, pa.Table.from_pylist(skus, schema=SKU_SCHEMA), staging_dir, run_id),
             write_table("sku_price", location, pa.Table.from_pylist(prices, schema=SKU_PRICE_SCHEMA), staging_dir, run_id),

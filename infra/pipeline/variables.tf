@@ -75,9 +75,9 @@ variable "provider_runs" {
   }
   validation {
     condition = alltrue([
-      for p, c in var.provider_runs : c.api_key_parameter == null || can(regex("^/cloud-pricing/[a-z0-9-]+/[a-z0-9-]+$", c.api_key_parameter))
+      for p, c in var.provider_runs : c.api_key_parameter == null || can(regex("^/cloud-pricing-data-retrieval/[a-z0-9-]+/[a-z0-9-]+$", c.api_key_parameter))
     ])
-    error_message = "api_key_parameter must look like /cloud-pricing/<env>/<name>."
+    error_message = "api_key_parameter must look like /cloud-pricing-data-retrieval/<env>/<name>."
   }
 }
 

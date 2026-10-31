@@ -191,7 +191,7 @@ run "three_providers" {
         schedule_enabled    = false
         task_cpu            = 1024
         task_memory         = 2048
-        api_key_parameter   = "/cloud-pricing/prod/gcp-pricing-api-key"
+        api_key_parameter   = "/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key"
       }
     }
   }
@@ -234,7 +234,7 @@ run "three_providers" {
     error_message = "No key is ever a plain environment variable."
   }
   assert {
-    condition     = strcontains(aws_ecs_task_definition.pipeline["gcp"].container_definitions, "\"secrets\":[{\"name\":\"GCP_PRICING_API_KEY\",\"valueFrom\":\"arn:aws:ssm:us-east-1:123456789012:parameter/cloud-pricing/prod/gcp-pricing-api-key\"}]")
+    condition     = strcontains(aws_ecs_task_definition.pipeline["gcp"].container_definitions, "\"secrets\":[{\"name\":\"GCP_PRICING_API_KEY\",\"valueFrom\":\"arn:aws:ssm:us-east-1:123456789012:parameter/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key\"}]")
     error_message = "The GCP task gets the key from the SSM parameter by ARN."
   }
   assert {
@@ -261,7 +261,7 @@ run "three_providers" {
   assert {
     condition = (
       data.aws_iam_policy_document.execution_gcp_key[0].statement[0].actions == toset(["ssm:GetParameters"]) &&
-      data.aws_iam_policy_document.execution_gcp_key[0].statement[0].resources == toset(["arn:aws:ssm:us-east-1:123456789012:parameter/cloud-pricing/prod/gcp-pricing-api-key"])
+      data.aws_iam_policy_document.execution_gcp_key[0].statement[0].resources == toset(["arn:aws:ssm:us-east-1:123456789012:parameter/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key"])
     )
     error_message = "The GCP execution role may read that one parameter and nothing else."
   }
@@ -312,7 +312,7 @@ run "api_key_parameter_only_for_gcp" {
         schedule_enabled    = false
         task_cpu            = 1024
         task_memory         = 2048
-        api_key_parameter   = "/cloud-pricing/prod/azure-key"
+        api_key_parameter   = "/cloud-pricing-data-retrieval/prod/azure-key"
       }
     }
   }

@@ -63,7 +63,7 @@ provider_runs = {
     schedule_enabled    = false
     task_cpu            = 1024
     task_memory         = 2048
-    api_key_parameter   = "/cloud-pricing/prod/gcp-pricing-api-key"   # created by the operator (quickstart C1)
+    api_key_parameter   = "/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key"   # created by the operator (quickstart C1)
   }
 }
 ```
@@ -74,7 +74,7 @@ provider_runs = {
 
 | Name | Type | Key | Managed by |
 |---|---|---|---|
-| `/cloud-pricing/<env>/gcp-pricing-api-key` | `SecureString`, standard tier | `aws/ssm` | The operator, via a documented CLI command. **Not** OpenTofu, which would store the decrypted value in state (research R12). |
+| `/cloud-pricing-data-retrieval/<env>/gcp-pricing-api-key` | `SecureString`, standard tier | `aws/ssm` | The operator, via a documented CLI command. **Not** OpenTofu, which would store the decrypted value in state (research R12). |
 
 Only the execution role `cloud-pricing-task-execution-gcp-<env>` may read it. ECS injects it into the GCP task as `GCP_PRICING_API_KEY`.
 

@@ -4,7 +4,7 @@
 
 ## Automated tests
 
-- [x] `pytest`: **512 passed**, 0 skipped (297 at the start of this feature). Covers the Azure and GCP transforms, clients and paging; the manifest 1.1 contract; per-provider runs on local and moto S3 storage; the documented lookups; transform-only and retention per provider; the no-key-leak search; and the code-organization rules (constitution v1.3.0 Principle VI). No test uses the network or a real key.
+- [x] `pytest`: **522 passed**, 0 skipped (297 at the start of this feature; 512 at T053, plus 10 from the convergence tasks T056–T058 on 2026-10-31). Covers the Azure and GCP transforms, clients and paging; the manifest 1.1 contract; per-provider runs on local and moto S3 storage; the documented lookups; transform-only and retention per provider; the no-key-leak search; and the code-organization rules (constitution v1.3.0 Principle VI). No test uses the network or a real key.
 - [x] `tofu fmt -check -recursive infra/`: clean (OpenTofu 1.12.6 locally; CI uses 1.10.6).
 - [x] `tofu validate`: pipeline valid.
 - [x] `tofu test` with a mocked AWS provider: **bootstrap 4/4, data 7/7, pipeline 9/9 pass**. These cover:
@@ -15,7 +15,7 @@
   - `TASK CRASHED` covering all three families, and the watchdog checking only scheduled providers
   - per-provider raw expiry rules
   - the run role covering all three families and passing the GCP execution role
-- [ ] Image build. Docker isn't available on this machine. The `Dockerfile` is unchanged (it copies `src/`, which now includes `src/aws/`, `src/azure/` and `src/gcp/`), and CI builds the image on the pull request.
+- [x] Image build (2026-10-31, Docker 29.8.1, commit `7e2922f`): builds unchanged, 687 MB; the image holds `src/aws/`, `src/azure/` and `src/gcp/`, and no `.env`. `settings` works for `aws` and `azure`; `gcp` exits 2 without a key and shows `api_key` as `***` with one. A live Azure `run --regions eastus` in the container `succeeded` (manifest 1.1; `price_item` 32,648, `price_item_savings_plan` 7,123; 36 requests, 2 throttled responses retried; 239 s) and `verify` reported 0 problems.
 
 ## Quickstart Part Q: local
 
@@ -37,7 +37,7 @@ These were run against the **live** sources on 2026-10-30, from the repo's venv 
 
 Not started. Each step needs the owner (T054):
 
-- [ ] C1: the operator creates `/cloud-pricing/prod/gcp-pricing-api-key`.
+- [ ] C1: the operator creates `/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key`.
 - [ ] C2: release, and the plan shows no destroy of the AWS task definition or schedule.
 - [ ] C3: on-demand runs for `azure` and `gcp`.
 - [ ] C4: provider isolation, with a temporarily invalid GCP key.
@@ -47,3 +47,7 @@ Not started. Each step needs the owner (T054):
 - [ ] C6: enable both schedules together.
 - [ ] C8: AWS unchanged.
 - [ ] C7: four weeks unattended (SC-001, SC-007).
+
+## Convergence (T056–T058, 2026-10-31)
+
+- [x] Stored live data from Q1/Q2 (2026-10-30) rebuilt offline with the stricter rules (repeated-page guard, currency check, counting absent prices, failing a location with no readable price): Azure `eastus` and `global`, and GCP's seven default regions plus `us`, `eu` and `global`, all `succeeded` with 0 unparseable prices and 0 requests. The full-catalog GCP transform still takes 3 s (peak 934 MiB).

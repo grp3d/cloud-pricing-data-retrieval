@@ -4,7 +4,9 @@ Azure Retail Prices pages → `price_item` and `price_item_savings_plan`
 
 The tables follow the source: one row per published item, split only where the source
 has a one-to-many relationship (an item's savings plan prices). Values are stored as
-published; a price that isn't a number becomes null and is counted, never estimated.
+published; a price that is missing, isn't a number or is in a currency other than
+`PRICING_CURRENCY` becomes null and is counted, never estimated or converted. A location
+where no item has a readable price fails.
 """
 
 import datetime as dt
@@ -106,10 +108,11 @@ def price_item_key(item: dict) -> str:
     return hashlib.sha256(_canonical({k: v for k, v in item.items() if k != "savingsPlan"}).encode()).hexdigest()[:32]
 
 
-def _number(value: Any) -> Tuple[Optional[float], bool]:
-    """(value, unparseable). Absent stays null without counting; non-numbers are counted."""
+def _number(value: Any, required: bool = False) -> Tuple[Optional[float], bool]:
+    """(value, unparseable). Non-numbers are counted; an absent value is counted only when
+    `required` (a price), since an absent tier bound or optional field is normal."""
     if value is None:
-        return None, False
+        return None, required
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None, True
     return float(value), False
@@ -146,6 +149,7 @@ class AzureTransform(LocationTransform):
         sources: Dict[str, set] = {}
         rows, plans = [], []
         duplicates = unlocated = unparseable = 0
+        currency = self.settings.pricing_currency
         for item in items:
             fingerprint = _canonical(item)
             if fingerprint in seen:
@@ -169,9 +173,11 @@ class AzureTransform(LocationTransform):
             for field, column in _TEXT_FIELDS.items():
                 value = item.get(field)
                 row[column] = value if isinstance(value, str) or value is None else str(value)
-            for field, column in (("tierMinimumUnits", "tier_minimum_units"), ("unitPrice", "unit_price"),
-                                  ("retailPrice", "retail_price")):
-                row[column], bad = _number(item.get(field))
+            row["tier_minimum_units"], bad = _number(item.get("tierMinimumUnits"))
+            unparseable += bad
+            other_currency = item.get("currencyCode") != currency
+            for field, column in (("unitPrice", "unit_price"), ("retailPrice", "retail_price")):
+                row[column], bad = (None, True) if other_currency else _number(item.get(field), required=True)
                 unparseable += bad
             row["effective_start_date"] = _timestamp(item.get("effectiveStartDate"))
             row["effective_end_date"] = _timestamp(item.get("effectiveEndDate"))
@@ -182,8 +188,11 @@ class AzureTransform(LocationTransform):
             rows.append(row)
 
             for plan in item.get("savingsPlan") or []:
-                unit_price, bad_unit = _number(plan.get("unitPrice"))
-                retail_price, bad_retail = _number(plan.get("retailPrice"))
+                if other_currency:
+                    (unit_price, bad_unit), (retail_price, bad_retail) = (None, True), (None, True)
+                else:
+                    unit_price, bad_unit = _number(plan.get("unitPrice"), required=True)
+                    retail_price, bad_retail = _number(plan.get("retailPrice"), required=True)
                 unparseable += bad_unit + bad_retail
                 plans.append(
                     {
@@ -201,6 +210,8 @@ class AzureTransform(LocationTransform):
                 result.errors.append(
                     f"source locations {', '.join(repr(v) for v in sorted(values))} all map to partition {mapped!r}"
                 )
+        if rows and not any(r["unit_price"] is not None or r["retail_price"] is not None for r in rows):
+            result.errors.append(f"none of the {len(rows)} price items has a readable {currency} price")
         result.counters = {"items_received": len(items), "duplicates_removed": duplicates, "unlocated_rows": unlocated}
         result.unparseable_prices = unparseable
         if result.errors:

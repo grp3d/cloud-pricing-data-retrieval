@@ -191,7 +191,7 @@ Each run is for one provider, so one pair of settings is enough. The defaults di
 
 **Decision**:
 
-- **Parameter**: `/cloud-pricing/<env>/gcp-pricing-api-key`, type `SecureString`, encrypted with the AWS-managed key `aws/ssm`. Standard tier, so free.
+- **Parameter**: `/cloud-pricing-data-retrieval/<env>/gcp-pricing-api-key`, type `SecureString`, encrypted with the AWS-managed key `aws/ssm`. Standard tier, so free.
 - **Created by the operator, not OpenTofu**: the operator creates and rotates it with a documented `aws ssm put-parameter` command (quickstart C1). OpenTofu never manages the parameter resource; it only refers to the parameter's ARN by name.
 - **Injected at task start**: the GCP task definition lists the parameter in its container `secrets`. ECS reads it at task start and sets `GCP_PRICING_API_KEY` in the container. The pipeline code reads the same environment variable locally and in the cloud, and contains no SSM code.
 - **Access**: only a GCP-specific task execution role, `cloud-pricing-task-execution-gcp-<env>`, may call `ssm:GetParameters` on that one parameter. No `kms:Decrypt` grant is needed, because the key is the AWS-managed one.

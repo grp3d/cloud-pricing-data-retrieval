@@ -32,7 +32,7 @@ be in `pricing_providers`, the data stack's list of prefixes and raw expiry rule
 - **Moving from feature 003**: `moved` blocks map the old single task definition and schedule to
   `["aws"]`, and the AWS container definition is unchanged. The first plan must show **no
   destroy** of the AWS task definition or schedule (quickstart C2).
-- **The GCP key** is the SSM `SecureString` `/cloud-pricing/<env>/gcp-pricing-api-key`.
+- **The GCP key** is the SSM `SecureString` `/cloud-pricing-data-retrieval/<env>/gcp-pricing-api-key`.
   **Create it before applying with `gcp` in `provider_runs`**. OpenTofu never creates or reads
   the parameter (an `aws_ssm_parameter` would put the decrypted value in state). It grants only
   `ssm:GetParameters` on that one ARN to the GCP execution role, and ECS injects the value as

@@ -26,7 +26,7 @@ Nothing in behavior:
 
   Ignore them if they aren't needed.
 - **GCP prices** come from Google's v2beta catalog API and include commitment prices (CUDs, savings plans) per SKU. They are `decimal128(38, 9)`. Azure and AWS prices are `float64`.
-- **Nulls**: a price, tier bound or quantity the source published but that isn't a valid number is stored as null and counted in `unparseable_prices` for that location. Treat null as "not published", never as zero.
+- **Nulls**: a price the source omits, or published in a currency other than the configured one (USD), and a price, tier bound or quantity that isn't a valid number, are stored as null and counted in `unparseable_prices` for that location. Prices are never converted. Treat null as "not published", never as zero.
 - **GCP `service`**: rows exist only in the `global` partition; other locations list the table with no files.
 
 ## Suggested app work (separate feature)

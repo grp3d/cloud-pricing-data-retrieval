@@ -11,7 +11,7 @@ from src.gcp.api import GcpCatalogClient, listing_urls
 from src.gcp.config import GcpSettings
 from src.gcp.http_pages import GcpPagedSource
 from src.pipeline.config import PipelineSettings, SettingsError
-from src.pipeline.http_pages import PermanentSourceError
+from src.pipeline.http_pages import PermanentSourceError, SourceError
 from src.pipeline.retry import RetryPolicy
 from tests.helpers.fake_pricing import GCP_FIXTURES, FakeHttpSource, http_error, http_timeout
 
@@ -113,6 +113,17 @@ def test_failed_page_resumes_from_its_own_token():
     fake = catalog_routes(settings).fail(second, http_timeout(1))
     list(_source(fake).pages(listing_urls(settings)["skus"]))
     assert [u.endswith("pageToken=fixture-skus-p0002") for u in fake.urls()] == [False, True, True]
+
+
+def test_repeated_page_token_fails_instead_of_looping():
+    settings = _settings()
+    second = listing_urls(settings)["skus"] + "&pageToken=fixture-skus-p0002"
+    fake = catalog_routes(settings).route(second, b'{"skus": [], "nextPageToken": "fixture-skus-p0002"}')
+    src = _source(fake)
+    with pytest.raises(SourceError) as err:
+        list(src.pages(listing_urls(settings)["skus"]))
+    assert "links back" in str(err.value)
+    assert src.stats.requests_made == 1 + 4
 
 
 @pytest.mark.parametrize("reason", ["API_KEY_INVALID", "PERMISSION_DENIED", "API_KEY_SERVICE_BLOCKED"])

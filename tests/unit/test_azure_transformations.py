@@ -167,3 +167,54 @@ def test_unreadable_page_fails_the_location(tmp_path):
     transform = AzureTransform(SETTINGS, ["eastus"])
     result = transform.transform_location([str(path)], "eastus", str(tmp_path / "s"), RUN, DATE)
     assert not result.ok
+
+
+def _page_run(tmp_path, items, location="eastus"):
+    path = tmp_path / "page.json"
+    path.write_text(json.dumps({"Items": items, "NextPageLink": None, "Count": len(items)}))
+    transform = AzureTransform(SETTINGS, [location])
+    result = transform.transform_location([str(path)], location, str(tmp_path / "s"), RUN, DATE)
+    tables = {f.table: pq.read_table(f.local_path) for f in result.files}
+    return result, tables
+
+
+def _with_plan(items):
+    return [i for i in items if i.get("savingsPlan")][0]
+
+
+def test_other_currency_prices_are_null_and_counted(tmp_path):
+    """Edge Cases (other currency), FR-017: never converted (feature 004 T057)."""
+    items = _items("eastus-p0001.json")[:5]
+    planned = _with_plan(_items("eastus-p0001.json", "eastus-p0002.json"))
+    euro = dict(planned, currencyCode="EUR", meterId="euro")
+    result, tables = _page_run(tmp_path, items + [euro])
+    assert result.ok
+    row = [r for r in tables["price_item"].to_pylist() if r["meter_id"] == "euro"][0]
+    assert row["currency_code"] == "EUR"
+    assert row["unit_price"] is None and row["retail_price"] is None
+    assert row["tier_minimum_units"] == euro["tierMinimumUnits"]
+    plans = [p for p in tables["price_item_savings_plan"].to_pylist() if p["price_item_key"] == row["price_item_key"]]
+    assert plans and all(p["unit_price"] is None and p["retail_price"] is None for p in plans)
+    assert result.unparseable_prices == 2 + 2 * len(plans)
+
+
+def test_absent_price_is_null_and_counted(tmp_path):
+    """FR-017: a price the source omits is counted; an absent tier bound is not (T058)."""
+    items = _items("eastus-p0001.json")[:3]
+    no_price = {k: v for k, v in items[0].items() if k not in ("unitPrice", "tierMinimumUnits")}
+    no_price["meterId"] = "no-price"
+    result, tables = _page_run(tmp_path, items[1:] + [no_price])
+    assert result.ok
+    row = [r for r in tables["price_item"].to_pylist() if r["meter_id"] == "no-price"][0]
+    assert row["unit_price"] is None and row["tier_minimum_units"] is None
+    assert row["retail_price"] == items[0]["retailPrice"]
+    assert result.unparseable_prices == 1
+
+
+def test_location_with_no_readable_price_fails(tmp_path):
+    """Edge Cases (a required field disappears): the location fails with a reason (T058)."""
+    items = [{k: v for k, v in i.items() if k not in ("unitPrice", "retailPrice")} for i in _items("eastus-p0001.json")[:4]]
+    result, _ = _page_run(tmp_path, items)
+    assert not result.ok
+    assert "none of the 4 price items has a readable USD price" in result.failure_reason()
+    assert result.unparseable_prices == 8
