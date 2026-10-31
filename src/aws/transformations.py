@@ -19,9 +19,13 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from src.pipeline.layout import TABLES
+from src.pipeline.transformations import LocationTransform
+from src.pipeline.transformations import TransformResult as PipelineTransformResult
+
 
 logger = logging.getLogger(__name__)
+
+TABLES = ("service_dim", "product_dim", "product_attribute", "region_dim", "price_fact")
 
 # Bump a table's version whenever its columns change incompatibly (FR-018).
 TABLE_SCHEMA_VERSIONS: Dict[str, int] = {table: 1 for table in TABLES}
@@ -307,3 +311,27 @@ def transform_pricing_to_parquet(request: TransformRequest) -> TransformResult:
         e.startswith("Failed writing") for e in result.errors
     )
     return result
+
+
+class AwsTransform(LocationTransform):
+    """The pipeline's AWS transform: one region's price-list files → the five tables."""
+
+    TABLE_SCHEMA_VERSIONS = TABLE_SCHEMA_VERSIONS
+
+    def transform_location(self, loaded, location, staging_dir, run_id, snapshot_date) -> PipelineTransformResult:
+        result = transform_pricing_to_parquet(
+            TransformRequest(
+                json_files=loaded,
+                staging_dir=staging_dir,
+                region=location,
+                run_id=run_id,
+                snapshot_date=snapshot_date,
+                log_callback=self.log,
+            )
+        )
+        return PipelineTransformResult(
+            files=list(result.files),
+            errors=list(result.errors),
+            unparseable_prices=result.unparseable_prices,
+            ok=result.success and not result.parse_failed_files,
+        )

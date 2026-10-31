@@ -270,9 +270,14 @@ resource "aws_iam_role_policy" "gha_apply" {
 data "aws_iam_policy_document" "gha_run" {
   for_each = local.github_enabled ? toset(var.environments) : toset([])
 
+  # One task family per pricing provider (feature 004): AWS keeps its original name.
   statement {
-    actions   = ["ecs:RunTask"]
-    resources = ["arn:aws:ecs:*:${local.account_id}:task-definition/cloud-pricing-pipeline-${each.key}:*"]
+    actions = ["ecs:RunTask"]
+    resources = [
+      "arn:aws:ecs:*:${local.account_id}:task-definition/cloud-pricing-pipeline-${each.key}:*",
+      "arn:aws:ecs:*:${local.account_id}:task-definition/cloud-pricing-pipeline-azure-${each.key}:*",
+      "arn:aws:ecs:*:${local.account_id}:task-definition/cloud-pricing-pipeline-gcp-${each.key}:*",
+    ]
   }
 
   statement {
@@ -285,6 +290,7 @@ data "aws_iam_policy_document" "gha_run" {
     resources = [
       "arn:aws:iam::${local.account_id}:role/cloud-pricing-task-${each.key}",
       "arn:aws:iam::${local.account_id}:role/cloud-pricing-task-execution-${each.key}",
+      "arn:aws:iam::${local.account_id}:role/cloud-pricing-task-execution-gcp-${each.key}",
     ]
   }
 }

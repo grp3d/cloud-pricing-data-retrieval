@@ -39,7 +39,8 @@ Consumers MUST reject a table name, or a table `schema_version`, that they don't
 - **`global`** holds prices the source marks as global or gives no location for. Azure and GCP always collect `global`, and it is a requested location in every run.
 - **Pricing in a location**: to price something in location *L*, read the files for *L* and for `global`. Some services (e.g., Azure support plans, GCP licensing) publish only global prices.
 - **SKUs that list several locations**: a GCP SKU that lists several configured locations appears once in each of their partitions. Multi-region and dual-region SKUs list their member regions, so they are filed under those regions; `geo_taxonomy_type = 'TYPE_MULTI_REGIONAL'` tells them apart from regional SKUs. Count distinct `sku_id` values across partitions, not rows, when counting SKUs.
-- **GCP `service`** is written to the `global` partition only.
+- **GCP `service`** is written to the `global` partition only. The manifest's `tables.service.regions` lists every location, with no files and `row_count` 0 except `global`.
+- **Timestamps** (Azure `effective_start_date`, `effective_end_date`) are `timestamp[ms, UTC]`: Parquet has no seconds unit.
 
 ## Lookup examples
 

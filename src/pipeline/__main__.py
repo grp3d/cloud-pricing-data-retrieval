@@ -22,6 +22,20 @@ from src.pipeline.config import PipelineSettings, SettingsError
 EXIT_SETTINGS = 2
 EXIT_PRECONDITION = 3
 
+# Secret values (e.g. a provider's API key) scrubbed from every log line and error message
+# (FR-006, SC-006). Filled in once settings are loaded.
+_SECRETS: list = []
+
+
+def _install_redaction(secrets) -> None:
+    _SECRETS[:] = [s for s in secrets if s]
+
+
+def _redact(text: str) -> str:
+    for secret in _SECRETS:
+        text = text.replace(secret, "***")
+    return text
+
 
 class _JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -30,13 +44,13 @@ class _JsonFormatter(logging.Formatter):
             try:
                 payload = json.loads(message)
                 payload.setdefault("level", record.levelname.lower())
-                return json.dumps(payload, sort_keys=True)
+                return _redact(json.dumps(payload, sort_keys=True))
             except ValueError:
                 pass
         entry = {"level": record.levelname.lower(), "logger": record.name, "message": message}
         if record.exc_info:
             entry["exc"] = self.formatException(record.exc_info)
-        return json.dumps(entry, sort_keys=True)
+        return _redact(json.dumps(entry, sort_keys=True))
 
 
 def _configure_logging() -> None:
@@ -49,12 +63,18 @@ def _configure_logging() -> None:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
+def _echo_error(message: str) -> None:
+    click.echo(_redact(json.dumps({"level": "error", "message": message})), err=True)
+
+
 def _load_settings() -> PipelineSettings:
     try:
-        return PipelineSettings.from_env()
+        settings = PipelineSettings.from_env()
     except SettingsError as e:
-        click.echo(json.dumps({"level": "error", "message": f"invalid settings: {e}"}), err=True)
+        _echo_error(f"invalid settings: {e}")
         sys.exit(EXIT_SETTINGS)
+    _install_redaction(settings.secret_values())
+    return settings
 
 
 class _crash_alert:
@@ -71,7 +91,7 @@ class _crash_alert:
         if exc_type is None or issubclass(exc_type, (SystemExit, KeyboardInterrupt)):
             return False
         logging.getLogger("pipeline").exception("unhandled error")
-        detail = "".join(traceback.format_exception(exc_type, exc, tb))[-3000:]
+        detail = _redact("".join(traceback.format_exception(exc_type, exc, tb)))[-3000:]
         try:
             from src.pipeline.notify import RUN_CRASHED, Notifier
 
@@ -142,7 +162,7 @@ def retention(dry_run, output_path):
         try:
             check_clock_skew(store, settings, now)
         except SettingsError as e:
-            click.echo(json.dumps({"level": "error", "message": str(e)}), err=True)
+            _echo_error(str(e))
             sys.exit(EXIT_SETTINGS)
         result = run_retention(
             store,
@@ -164,7 +184,7 @@ def retention(dry_run, output_path):
 @click.option(
     "--source",
     default=None,
-    help="Local root with the new layout or legacy pricing_aws/ (default: $DATA_DIRECTORY_ROOT)",
+    help="Local root with the new layout or the provider's legacy layout (default: $DATA_DIRECTORY_ROOT)",
 )
 @click.option("--overwrite", is_flag=True, help="Replace existing data for this date with a new revision")
 @click.option("--dry-run", is_flag=True, help="Print the manifest and files; write nothing")
@@ -175,10 +195,15 @@ def upload_history_cmd(snapshot_date, source, overwrite, dry_run):
     from src.pipeline.backfill import BackfillPrecondition, upload_history
     from src.pipeline.storage import open_storage
 
+    from src.pipeline.providers import get_provider
+
     settings = _load_settings()
+    if not get_provider(settings.provider).legacy_parquet_dir:
+        _echo_error(f"upload-history is not available for provider {settings.provider!r}")
+        sys.exit(EXIT_SETTINGS)
     source = source or os.environ.get("DATA_DIRECTORY_ROOT")
     if not source:
-        click.echo(json.dumps({"level": "error", "message": "--source or DATA_DIRECTORY_ROOT is required"}), err=True)
+        _echo_error("--source or DATA_DIRECTORY_ROOT is required")
         sys.exit(EXIT_SETTINGS)
     with _crash_alert(settings, {"snapshot_date": snapshot_date, "trigger": "backfill", "mode": "backfill"}):
         try:
@@ -191,13 +216,13 @@ def upload_history_cmd(snapshot_date, source, overwrite, dry_run):
                 dry_run=dry_run,
             )
         except BackfillPrecondition as e:
-            click.echo(json.dumps({"level": "error", "message": str(e)}), err=True)
+            _echo_error(str(e))
             sys.exit(EXIT_PRECONDITION)
         except SettingsError as e:
-            click.echo(json.dumps({"level": "error", "message": str(e)}), err=True)
+            _echo_error(str(e))
             sys.exit(EXIT_SETTINGS)
         except ValueError as e:
-            click.echo(json.dumps({"level": "error", "message": f"invalid argument: {e}"}), err=True)
+            _echo_error(f"invalid argument: {e}")
             sys.exit(EXIT_SETTINGS)
     click.echo(json.dumps(result, sort_keys=True, indent=2))
 
@@ -236,10 +261,15 @@ def raw_list(as_json):
 @click.option("--decompress", is_flag=True, help="Write .json instead of .json.zst")
 def raw_download(snapshot_date, dest, regions, decompress):
     """Copy one raw snapshot to a local directory."""
-    from src.pipeline.raw_access import RawNotFound, download_raw
+    from src.pipeline.raw_access import RawNotFound, download_raw, ignores_regions
     from src.pipeline.storage import open_storage
 
     settings = _load_settings()
+    if regions and ignores_regions(settings.provider):
+        click.echo(json.dumps({
+            "level": "warning",
+            "message": f"--regions is ignored for {settings.provider}: its raw data is one catalog download for every location",
+        }))
     try:
         files = download_raw(
             open_storage(settings.storage_uri),
@@ -250,7 +280,7 @@ def raw_download(snapshot_date, dest, regions, decompress):
             decompress=decompress,
         )
     except RawNotFound as e:
-        click.echo(json.dumps({"level": "error", "message": str(e)}), err=True)
+        _echo_error(str(e))
         sys.exit(EXIT_PRECONDITION)
     click.echo(json.dumps({"level": "info", "downloaded": len(files), "dest": dest}))
 

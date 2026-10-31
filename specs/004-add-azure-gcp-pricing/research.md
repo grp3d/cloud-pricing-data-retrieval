@@ -210,7 +210,7 @@ Each run is for one provider, so one pair of settings is enough. The defaults di
 
 ## R13. Infrastructure: one task definition and schedule per provider
 
-**Decision**: Replace `pricing_regions`, `schedule_expression` and `schedule_enabled` with a `providers` map variable. Each entry has `locations`, `schedule_expression`, `schedule_enabled`, `task_cpu`, `task_memory` and `secrets`. From it, the infrastructure creates per provider (`for_each`):
+**Decision**: Replace `pricing_regions`, `schedule_expression` and `schedule_enabled` with a `provider_runs` map variable. Each entry has `locations`, `schedule_expression`, `schedule_enabled`, `task_cpu`, `task_memory` and `secrets`. From it, the infrastructure creates per provider (`for_each`):
 
 - an `aws_ecs_task_definition`, carrying `PIPELINE_PROVIDER`, `PRICING_REGIONS` and the pacing settings
 - an `aws_scheduler_schedule`, named `cloud-pricing-pipeline-<provider>-<env>`

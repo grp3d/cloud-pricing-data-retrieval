@@ -67,7 +67,7 @@ def scenario_full_run_layout(store, tmp_path):
     parquet = [k for k in all_keys if k.startswith("aws/parquet/")]
     assert parquet == sorted(
         layout.parquet_file_key("aws", table, DATE, region, run_id)
-        for table in layout.TABLES
+        for table in layout.tables_for("aws")
         for region in REGIONS
     )
     assert [k for k in all_keys if k.startswith("aws/manifests/")] == [
@@ -236,7 +236,7 @@ def test_inline_retention_cleans_superseded_after_rerun(local_store, tmp_path, n
         work_dir=str(work),
     )
     assert report.retention["waited_seconds"] == pytest.approx(300)
-    assert report.retention["superseded_deleted"] == len(layout.TABLES) * len(REGIONS)
+    assert report.retention["superseded_deleted"] == len(layout.tables_for("aws")) * len(REGIONS)
     assert not [k for k in keys(local_store, "aws/parquet/") if first.run_id in k]
     assert verify_snapshot(local_store, "aws") == []
     assert_valid_contract(local_store)

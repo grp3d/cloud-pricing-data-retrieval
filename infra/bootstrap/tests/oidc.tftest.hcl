@@ -76,3 +76,22 @@ run "immutable_format_requires_ids" {
 
   expect_failures = [aws_iam_openid_connect_provider.github]
 }
+
+# Feature 004 (T039): the run role may start every provider's task and pass the GCP
+# execution role, which is the only role that may read the GCP key.
+run "run_role_covers_every_provider" {
+  command = plan
+
+  assert {
+    condition = toset(data.aws_iam_policy_document.gha_run["prod"].statement[0].resources) == toset([
+      "arn:aws:ecs:*:123456789012:task-definition/cloud-pricing-pipeline-prod:*",
+      "arn:aws:ecs:*:123456789012:task-definition/cloud-pricing-pipeline-azure-prod:*",
+      "arn:aws:ecs:*:123456789012:task-definition/cloud-pricing-pipeline-gcp-prod:*",
+    ])
+    error_message = "run-pipeline must be able to start the aws, azure and gcp tasks."
+  }
+  assert {
+    condition     = contains(data.aws_iam_policy_document.gha_run["prod"].statement[2].resources, "arn:aws:iam::123456789012:role/cloud-pricing-task-execution-gcp-prod")
+    error_message = "run-pipeline must be able to pass the GCP execution role."
+  }
+}

@@ -1,0 +1,241 @@
+{
+ "skus": [
+  {
+   "name": "skus/BB77-5FDA-69D9",
+   "skuId": "BB77-5FDA-69D9",
+   "displayName": "N2 Instance Core running in Americas",
+   "service": "services/6F81-5844-456A",
+   "productTaxonomy": {
+    "taxonomyCategories": [
+     {
+      "category": "GCP"
+     },
+     {
+      "category": "Compute"
+     },
+     {
+      "category": "GCE"
+     },
+     {
+      "category": "VMs On Demand"
+     },
+     {
+      "category": "Cores: Per Core"
+     },
+     {
+      "category": "N2"
+     }
+    ]
+   },
+   "geoTaxonomy": {
+    "type": "TYPE_MULTI_REGIONAL",
+    "multiRegionalMetadata": {
+     "regions": [
+      {
+       "region": "us-central1"
+      },
+      {
+       "region": "us-east1"
+      },
+      {
+       "region": "us-west1"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "skus/5B01-D157-A097",
+   "skuId": "5B01-D157-A097",
+   "displayName": "N2 Instance Ram running in Americas",
+   "service": "services/6F81-5844-456A",
+   "productTaxonomy": {
+    "taxonomyCategories": [
+     {
+      "category": "GCP"
+     },
+     {
+      "category": "Compute"
+     },
+     {
+      "category": "GCE"
+     },
+     {
+      "category": "VMs On Demand"
+     },
+     {
+      "category": "Memory: Per GB"
+     },
+     {
+      "category": "N2"
+     }
+    ]
+   },
+   "geoTaxonomy": {
+    "type": "TYPE_MULTI_REGIONAL",
+    "multiRegionalMetadata": {
+     "regions": [
+      {
+       "region": "us-central1"
+      },
+      {
+       "region": "us-east1"
+      },
+      {
+       "region": "us-west1"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "skus/0002-C3CC-1713",
+   "skuId": "0002-C3CC-1713",
+   "displayName": "Long-Term Physical Storage (us-east1)",
+   "service": "services/24E6-581D-38E5",
+   "productTaxonomy": {
+    "taxonomyCategories": [
+     {
+      "category": "GCP"
+     },
+     {
+      "category": "Analytics"
+     },
+     {
+      "category": "GBQ"
+     },
+     {
+      "category": "PhysicalStorage"
+     },
+     {
+      "category": "LongTerm"
+     }
+    ]
+   },
+   "geoTaxonomy": {
+    "type": "TYPE_REGIONAL",
+    "regionalMetadata": {
+     "region": {
+      "region": "us-east1"
+     }
+    }
+   }
+  },
+  {
+   "name": "skus/0009-6F35-3126",
+   "skuId": "0009-6F35-3126",
+   "displayName": "Network Internet Data Transfer Out from EMEA to Seoul",
+   "service": "services/9662-B51E-5089",
+   "productTaxonomy": {
+    "taxonomyCategories": [
+     {
+      "category": "GCP"
+     },
+     {
+      "category": "Network"
+     },
+     {
+      "category": "Egress"
+     },
+     {
+      "category": "Cloud SQL"
+     },
+     {
+      "category": "Premium"
+     }
+    ]
+   },
+   "geoTaxonomy": {
+    "type": "TYPE_REGIONAL",
+    "regionalMetadata": {
+     "region": {
+      "region": "europe-west1"
+     }
+    }
+   }
+  },
+  {
+   "name": "skus/2D3F-8043-D389",
+   "skuId": "2D3F-8043-D389",
+   "displayName": "BigQuery BI Engine for US",
+   "service": "services/650B-3C82-34DB",
+   "productTaxonomy": {
+    "taxonomyCategories": [
+     {
+      "category": "GCP"
+     },
+     {
+      "category": "Analytics"
+     },
+     {
+      "category": "GBQ"
+     },
+     {
+      "category": "BigQuery BI Engine"
+     }
+    ]
+   },
+   "geoTaxonomy": {
+    "type": "TYPE_REGIONAL",
+    "regionalMetadata": {
+     "region": {
+      "region": "US"
+     }
+    }
+   }
+  },
+  {
+   "name": "skus/0003-CFD5-F4DB",
+   "skuId": "0003-CFD5-F4DB",
+   "displayName": "Subscription for domain with TLD .soy - yearly prepay",
+   "service": "services/8534-F08B-BEBD",
+   "productTaxonomy": {
+    "taxonomyCategories": [
+     {
+      "category": "GCP"
+     },
+     {
+      "category": "Other"
+     },
+     {
+      "category": "Cloud Domains"
+     },
+     {
+      "category": "Domain Registration"
+     }
+    ]
+   },
+   "geoTaxonomy": {
+    "type": "TYPE_GLOBAL",
+    "globalMetadata": {}
+   }
+  },
+  {
+   "name": "skus/00CC-93E2-6DC7",
+   "skuId": "00CC-93E2-6DC7",
+   "displayName": "Cloud Firestore Internet Data Transfer Out from APAC to Australia",
+   "service": "services/F17B-412E-CB64",
+   "productTaxonomy": {
+    "taxonomyCategories": [
+     {
+      "category": "GCP"
+     },
+     {
+      "category": "Network"
+     },
+     {
+      "category": "Egress"
+     },
+     {
+      "category": "Firestore"
+     },
+     {
+      "category": "Premium"
+     }
+    ]
+   },
+   "geoTaxonomy": {}
+  }
+ ],
+ "nextPageToken": "fixture-skus-p0002"
+}

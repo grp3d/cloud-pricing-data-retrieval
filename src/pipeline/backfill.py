@@ -23,13 +23,12 @@ from typing import Dict, List, Optional, Tuple
 
 import pyarrow.parquet as pq
 
-from src.pipeline import claims, layout
+from src.pipeline import claims, layout, providers
 from src.pipeline.clock import check_clock_skew
 from src.pipeline import manifest as m
 from src.pipeline.latest import update_latest
 from src.pipeline.storage import Storage
 
-LEGACY_DIR = os.path.join("pricing_aws", "parquet")
 
 
 class BackfillPrecondition(Exception):
@@ -70,9 +69,10 @@ def find_local_snapshot(source: str, provider: str, snapshot_date: str) -> Local
         ]
         return LocalSnapshot(snapshot_date, "manifest", source, files, man)
 
+    legacy_dir = providers.get_provider(provider).legacy_parquet_dir
     files = []
-    for table in layout.TABLES:
-        base = os.path.join(source, LEGACY_DIR, table, f"snapshot_date={snapshot_date}")
+    for table in layout.tables_for(provider) if legacy_dir else ():
+        base = os.path.join(source, *legacy_dir.split("/"), table, f"snapshot_date={snapshot_date}")
         for region_dir in sorted(glob.glob(os.path.join(base, "region=*"))):
             region = os.path.basename(region_dir)[len("region="):]
             for path in sorted(glob.glob(os.path.join(region_dir, "*.parquet"))):
@@ -80,7 +80,8 @@ def find_local_snapshot(source: str, provider: str, snapshot_date: str) -> Local
     if not files:
         raise BackfillPrecondition(
             f"no local table data for {snapshot_date} under {source} "
-            f"(looked for {provider}/manifests/{snapshot_date}/manifest.json and {LEGACY_DIR}/)"
+            f"(looked for {provider}/manifests/{snapshot_date}/manifest.json"
+            + (f" and {legacy_dir}/)" if legacy_dir else ")")
         )
     return LocalSnapshot(snapshot_date, "legacy", source, files)
 
@@ -129,7 +130,7 @@ def build_backfill_manifest(
     outcomes = []
     for region in sorted(per_region):
         tables = {}
-        for table in layout.TABLES:
+        for table in layout.tables_for(provider):
             local_files = per_region[region].get(table, [])
             entries = []
             for i, lf in enumerate(local_files):
@@ -158,7 +159,7 @@ def build_backfill_manifest(
 
 
 def _target_has_data(store: Storage, provider: str, date: str) -> bool:
-    prefixes = [layout.parquet_date_prefix(provider, t, date) for t in layout.TABLES]
+    prefixes = [layout.parquet_date_prefix(provider, t, date) for t in layout.tables_for(provider)]
     prefixes.append(layout.manifest_date_prefix(provider, date))
     return any(next(iter(store.list(p)), None) is not None for p in prefixes)
 

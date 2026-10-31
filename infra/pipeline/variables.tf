@@ -24,7 +24,7 @@ variable "aws_region" {
 }
 
 variable "pricing_providers" {
-  description = "Providers whose latest.json the watchdog checks, and whose prefixes the task may write."
+  description = "Providers whose prefixes the task may write (the data stack's list). Every key of `provider_runs` must be in it."
   type        = list(string)
   default     = ["aws"]
 }
@@ -34,38 +34,51 @@ variable "image_tag" {
   type        = string
 }
 
-variable "pricing_regions" {
-  description = "AWS regions to download pricing for."
-  type        = list(string)
-  default     = ["us-east-1", "us-east-2", "us-west-1", "us-west-2", "eu-west-1", "eu-west-2", "ap-northeast-1"]
+variable "provider_runs" {
+  description = <<-EOT
+    One entry per pricing provider run in the cloud (feature 004, contracts/configuration.md):
+    its locations, weekly schedule (UTC; schedule_enabled = false pauses it, FR-051), task size
+    (MiB; an AWS 7-region run peaks at ~3.9 GB per transform, research R1) and, for gcp only,
+    the operator-created SSM parameter holding its API key (research R12).
+  EOT
+  type = map(object({
+    locations           = list(string)
+    schedule_expression = string
+    schedule_enabled    = bool
+    task_cpu            = number
+    task_memory         = number
+    api_key_parameter   = optional(string)
+  }))
+  default = {
+    aws = {
+      locations           = ["us-east-1", "us-east-2", "us-west-1", "us-west-2", "eu-west-1", "eu-west-2", "ap-northeast-1"]
+      schedule_expression = "cron(0 13 ? * MON *)"
+      schedule_enabled    = true
+      task_cpu            = 1024
+      task_memory         = 8192
+    }
+  }
 
   validation {
-    condition     = length(var.pricing_regions) > 0
-    error_message = "pricing_regions must not be empty."
+    condition     = alltrue([for p in keys(var.provider_runs) : contains(["aws", "azure", "gcp"], p)])
+    error_message = "provider_runs keys must be aws, azure or gcp."
   }
-}
-
-variable "schedule_expression" {
-  description = "EventBridge Scheduler expression, evaluated in UTC (FR-002)."
-  type        = string
-  default     = "cron(0 13 ? * MON *)"
-}
-
-variable "schedule_enabled" {
-  description = "false pauses cloud runs while keeping all other infrastructure (FR-051)."
-  type        = bool
-  default     = true
-}
-
-variable "task_cpu" {
-  type    = number
-  default = 1024
-}
-
-variable "task_memory" {
-  description = "MiB. A 7-region run peaks at ~3.9 GB per transform (research R1)."
-  type        = number
-  default     = 8192
+  validation {
+    condition     = alltrue([for p, c in var.provider_runs : length(c.locations) > 0])
+    error_message = "Every provider needs at least one location."
+  }
+  validation {
+    condition = alltrue([
+      for p, c in var.provider_runs : (p == "gcp") == (c.api_key_parameter != null)
+    ])
+    error_message = "api_key_parameter is required for gcp and allowed only for gcp."
+  }
+  validation {
+    condition = alltrue([
+      for p, c in var.provider_runs : c.api_key_parameter == null || can(regex("^/cloud-pricing/[a-z0-9-]+/[a-z0-9-]+$", c.api_key_parameter))
+    ])
+    error_message = "api_key_parameter must look like /cloud-pricing/<env>/<name>."
+  }
 }
 
 variable "ephemeral_storage_gib" {

@@ -8,6 +8,7 @@ import json
 import pytest
 
 from src.pipeline import latest, layout
+from src.pipeline import layout
 from src.pipeline import manifest as m
 from src.pipeline.config import PipelineSettings
 from src.pipeline.storage import PreconditionFailed
@@ -33,7 +34,7 @@ def _manifest(date, revision=1, status="succeeded", run_id="20261005T130000Z-111
         failed=[],
         run=m.new_run_info(SETTINGS, "manual", "full", T0, T0),
         raw={},
-        tables={t: m.TableEntry(1, 0, {"us-east-1": region_entry}) for t in m.TABLES}
+        tables={t: m.TableEntry(1, 0, {"us-east-1": region_entry}) for t in layout.tables_for("aws")}
         if status == "succeeded"
         else {},
         purged=None,
@@ -48,7 +49,7 @@ def test_creates_latest_when_missing(store):
     assert latest.update_latest(store, _manifest("2026-10-05"), T0) is True
     doc = _pointer(store)
     assert doc == {
-        "manifest_version": "1.0",
+        "manifest_version": "1.1",
         "provider": "aws",
         "snapshot_date": "2026-10-05",
         "revision": 1,

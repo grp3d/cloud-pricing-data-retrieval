@@ -1,5 +1,5 @@
 """
-Tests for the async rewrite of the per-service download core in aws_pricing_api.py
+Tests for the async rewrite of the per-service download core in src/aws/api.py
 (research.md Decision 5). These pin run_pricing_job()'s external contract: same
 PricingJobResult shape and same exceptions as before the async rewrite (FR-011, FR-012;
 contracts/internal-interfaces.md).
@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 from botocore.exceptions import NoCredentialsError
 
-from src.aws_pricing_api import (
+from src.aws.api import (
     CredentialsError,
     PricingJobRequest,
     PricingJobResult,
@@ -108,9 +108,9 @@ def test_run_pricing_job_returns_unchanged_result_shape(monkeypatch, tmp_path):
         },
     )
     monkeypatch.setattr(
-        "src.aws_pricing_api.boto3.client", _boto3_client_factory(pricing_client)
+        "src.aws.api.boto3.client", _boto3_client_factory(pricing_client)
     )
-    monkeypatch.setattr("src.aws_pricing_api.httpx.AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr("src.aws.api.httpx.AsyncClient", _FakeAsyncClient)
 
     request = PricingJobRequest(
         region="us-east-1",
@@ -141,9 +141,9 @@ def test_partial_failure_when_a_service_has_no_price_list(monkeypatch, tmp_path)
         },
     )
     monkeypatch.setattr(
-        "src.aws_pricing_api.boto3.client", _boto3_client_factory(pricing_client)
+        "src.aws.api.boto3.client", _boto3_client_factory(pricing_client)
     )
-    monkeypatch.setattr("src.aws_pricing_api.httpx.AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr("src.aws.api.httpx.AsyncClient", _FakeAsyncClient)
 
     request = PricingJobRequest(
         region="us-east-1",
@@ -168,9 +168,9 @@ def test_no_downloads_marks_unsuccessful_without_raising(monkeypatch, tmp_path):
         price_lists_by_service={},
     )
     monkeypatch.setattr(
-        "src.aws_pricing_api.boto3.client", _boto3_client_factory(pricing_client)
+        "src.aws.api.boto3.client", _boto3_client_factory(pricing_client)
     )
-    monkeypatch.setattr("src.aws_pricing_api.httpx.AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr("src.aws.api.httpx.AsyncClient", _FakeAsyncClient)
 
     request = PricingJobRequest(
         region="us-east-1",
@@ -190,7 +190,7 @@ def test_credentials_error_raised_when_sts_fails(monkeypatch, tmp_path):
     """Missing AWS credentials -> CredentialsError, same as before the async rewrite."""
     pricing_client = _make_pricing_client(service_codes=[], price_lists_by_service={})
     monkeypatch.setattr(
-        "src.aws_pricing_api.boto3.client",
+        "src.aws.api.boto3.client",
         _boto3_client_factory(pricing_client, sts_side_effect=NoCredentialsError()),
     )
 
@@ -284,9 +284,9 @@ def _one_service_setup(monkeypatch, steps, service="AmazonEC2"):
         service_codes=[service],
         price_lists_by_service={service: f"arn:aws:pricing:::price-list/{service}/us-east-1"},
     )
-    monkeypatch.setattr("src.aws_pricing_api.boto3.client", _boto3_client_factory(pricing_client))
+    monkeypatch.setattr("src.aws.api.boto3.client", _boto3_client_factory(pricing_client))
     client_cls, state = _scripted_client(steps)
-    monkeypatch.setattr("src.aws_pricing_api.httpx.AsyncClient", client_cls)
+    monkeypatch.setattr("src.aws.api.httpx.AsyncClient", client_cls)
     return state
 
 
@@ -367,9 +367,9 @@ def test_no_price_list_is_counted_not_failed(monkeypatch, tmp_path):
         service_codes=["AmazonEC2", "AmazonGameLift"],
         price_lists_by_service={"AmazonEC2": "arn:aws:pricing:::price-list/AmazonEC2/us-east-1"},
     )
-    monkeypatch.setattr("src.aws_pricing_api.boto3.client", _boto3_client_factory(pricing_client))
+    monkeypatch.setattr("src.aws.api.boto3.client", _boto3_client_factory(pricing_client))
     client_cls, _ = _scripted_client([_ScriptedStreamResponse(GOOD_BODY)])
-    monkeypatch.setattr("src.aws_pricing_api.httpx.AsyncClient", client_cls)
+    monkeypatch.setattr("src.aws.api.httpx.AsyncClient", client_cls)
     result = run_pricing_job(_request(tmp_path, []))
     assert result.services_without_price_list == 1
     assert result.failed_downloads == []
@@ -416,9 +416,9 @@ def test_price_list_lookup_throttling_is_retried_with_policy(monkeypatch, tmp_pa
         return real(**kwargs)
 
     pricing_client.list_price_lists.side_effect = throttled
-    monkeypatch.setattr("src.aws_pricing_api.boto3.client", _boto3_client_factory(pricing_client))
+    monkeypatch.setattr("src.aws.api.boto3.client", _boto3_client_factory(pricing_client))
     client_cls, _ = _scripted_client([_ScriptedStreamResponse(GOOD_BODY)])
-    monkeypatch.setattr("src.aws_pricing_api.httpx.AsyncClient", client_cls)
+    monkeypatch.setattr("src.aws.api.httpx.AsyncClient", client_cls)
     sleeps = []
     result = run_pricing_job(_request(tmp_path, sleeps, strategy="fixed", base=2))
     assert result.failed_downloads == []
@@ -437,7 +437,7 @@ def test_price_list_lookup_throttling_exhausted_reports_attempts(monkeypatch, tm
     pricing_client.list_price_lists.side_effect = ClientError(
         {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}}, "ListPriceLists"
     )
-    monkeypatch.setattr("src.aws_pricing_api.boto3.client", _boto3_client_factory(pricing_client))
+    monkeypatch.setattr("src.aws.api.boto3.client", _boto3_client_factory(pricing_client))
     result = run_pricing_job(_request(tmp_path, [], max_retries=2, strategy="fixed", base=0))
     (failure,) = result.failed_downloads
     assert failure["attempts"] == 3

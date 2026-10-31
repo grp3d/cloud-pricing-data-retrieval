@@ -79,13 +79,13 @@ Partition: `azure/parquet/<table>/snapshot_date=<D>/region=<location>/part-<run_
 | `price_type` | string | `type` | `Consumption`, `DevTestConsumption`, `Reservation`, … as published |
 | `reservation_term` | string, nullable | `reservationTerm` | e.g. `1 Year`; null when absent |
 | `unit_of_measure` | string | `unitOfMeasure` | e.g. `1 Hour`, `1 GB/Month` |
-| `tier_minimum_units` | float64 | `tierMinimumUnits` | tier lower bound |
+| `tier_minimum_units` | float64, nullable | `tierMinimumUnits` | tier lower bound; null + counted if unparseable |
 | `currency_code` | string | `currencyCode` | |
 | `unit_price` | float64, nullable | `unitPrice` | null + counted if unparseable |
 | `retail_price` | float64, nullable | `retailPrice` | null + counted if unparseable |
-| `effective_start_date` | timestamp[s, UTC] | `effectiveStartDate` | |
-| `effective_end_date` | timestamp[s, UTC], nullable | `effectiveEndDate` | present on some items |
-| `is_primary_meter_region` | bool | `isPrimaryMeterRegion` | |
+| `effective_start_date` | timestamp[ms, UTC] | `effectiveStartDate` | |
+| `effective_end_date` | timestamp[ms, UTC], nullable | `effectiveEndDate` | present on some items |
+| `is_primary_meter_region` | bool, nullable | `isPrimaryMeterRegion` | null when absent |
 | `extra_fields` | string (JSON), nullable | other keys | any field not listed above, kept verbatim so new source fields aren't lost |
 
 **Duplicates**: rows with identical content (the same `price_item_key`) within one location are kept once, and the number removed is recorded in `duplicates_removed`. Rows that share identifying fields but differ in price are all kept.
@@ -116,6 +116,8 @@ The Windows, Spot and Low Priority distinctions exist only in the source's text,
 Partition: `gcp/parquet/<table>/snapshot_date=<D>/region=<location>/part-<run_id>.parquet`. Source: the v2beta catalog (research R4), plus the v1 services list for `service`.
 
 ### `service` (schema version 1): one row per in-scope service; `global` partition only
+
+The manifest lists `service` for every location; for locations other than `global` the entry has no files and `row_count` 0.
 
 | Column | Type | Source (`/v1/services`) |
 |---|---|---|
@@ -151,7 +153,7 @@ Partition: `gcp/parquet/<table>/snapshot_date=<D>/region=<location>/part-<run_id
 | `currency_code` | string | `currencyCode` |
 | `unit` | string, nullable | `rate.unitInfo.unit` (e.g. `h`, `GiBy.mo`) |
 | `unit_description` | string, nullable | `rate.unitInfo.unitDescription` |
-| `unit_quantity` | decimal128(38, 9), nullable | `rate.unitInfo.unitQuantity.value` (e.g. `1`, `1000000`) |
+| `unit_quantity` | decimal128(38, 9), nullable | `rate.unitInfo.unitQuantity.value` (e.g. `1`, `1000000`); null + counted if malformed |
 | `aggregation_level` | string, nullable | `rate.aggregationInfo.level` |
 | `aggregation_interval` | string, nullable | `rate.aggregationInfo.interval` |
 | `extra_fields` | string (JSON), nullable | unlisted fields, verbatim |
@@ -163,7 +165,7 @@ Rate fields are null when `value_type` isn't `rate` (319 prices on 2026-10-30).
 | Column | Type | Source |
 |---|---|---|
 | `snapshot_date`, `location`, `sku_id`, `consumption_model` | | joins to `sku_price` |
-| `start_amount` | decimal128(38, 9) | `rate.tiers[].startAmount.value` (tier lower bound, in units of `unit_quantity` × `unit`) |
+| `start_amount` | decimal128(38, 9), nullable | `rate.tiers[].startAmount.value` (tier lower bound, in units of `unit_quantity` × `unit`; an absent value is `0`, as in the source's JSON encoding); null + counted if malformed |
 | `currency_code` | string | `listPrice.currencyCode` |
 | `list_price` | decimal128(38, 9), nullable | exactly `units + nanos / 10^9`; null + counted if malformed |
 

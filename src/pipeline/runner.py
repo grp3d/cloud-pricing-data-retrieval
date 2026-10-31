@@ -1,12 +1,17 @@
 """
 run_snapshot(): one pipeline run for one snapshot date (data-model.md "Run flow").
 
-    claim the date → download regions concurrently → compress + upload raw →
-    transform one region at a time → upload Parquet → write revision + manifest →
+    claim the date → download locations concurrently → compress + upload raw →
+    transform one location at a time → upload Parquet → write revision + manifest →
     move latest.json (succeeded only) → report
 
 Works identically against a local directory or S3 (FR-008). Data files are written
 before the manifest, and the manifest before latest.json (FR-013).
+
+The provider's spec (src/pipeline/providers.py) supplies the downloader, the transform,
+the table list and the download model. A `catalog` provider downloads once per run into a
+shared raw unit and builds every location from it; if that download fails, every location
+fails with its reason (feature 004, FR-031).
 """
 
 import datetime as dt
@@ -22,12 +27,12 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from typing import Callable, Dict, List, Optional
 
-from src.aws_pricing_transformations import TransformRequest, transform_pricing_to_parquet
-from src.pipeline import claims, layout
+from src.pipeline import claims, layout, providers
 from src.pipeline import manifest as m
 from src.pipeline.clock import check_clock_skew
 from src.pipeline.config import PipelineSettings
-from src.pipeline.downloader import AwsPricingDownloader, Downloader, RegionDownload
+from src.pipeline.downloader import CatalogDownload, RegionDownload
+from src.pipeline.transformations import LocationTransform, TransformResult
 from src.pipeline.latest import update_latest
 from src.pipeline.notify import Notifier, alert_kinds_for
 from src.pipeline.retention import run_retention, summarize
@@ -124,22 +129,34 @@ def _hard_exit_on_timeout(report: "RunReport", notifier, settings) -> None:
     os._exit(EXIT_TIMEOUT)
 
 
+def _with_always_collected(locations: List[str], spec: providers.ProviderSpec) -> List[str]:
+    """The configured (or requested) locations plus the provider's always-collected ones."""
+    return list(dict.fromkeys(list(locations) + list(spec.always_collected)))
+
+
 class _SnapshotRun:
-    def __init__(self, settings, request, store, downloader, now, sleep, work_dir, log):
+    def __init__(self, settings, request, store, downloader, transform, now, sleep, work_dir, log):
         self.s: PipelineSettings = settings
         self.req: RunRequest = request
         self.store: Storage = store
-        self.downloader: Downloader = downloader
+        self.downloader = downloader
+        self.transform: LocationTransform = transform
         self.now = now
         self.sleep = sleep
         self.work_dir = work_dir
         self.log = log
         self.provider = settings.provider
+        self.spec = providers.get_provider(self.provider)
         self.started_at = now()
         self.date = request.snapshot_date or self.started_at.date().isoformat()
         layout.validate_snapshot_date(self.date)
         self.run_id = layout.new_run_id(self.started_at)
-        self.regions = [layout.validate_region(r) for r in (request.regions or settings.regions)]
+        self.regions = [
+            layout.validate_region(r)
+            for r in _with_always_collected(request.regions or settings.regions, self.spec)
+        ]
+        self.catalog_info: Optional[m.CatalogInfo] = None
+        self.catalog_raw: Optional[m.RawEntry] = None
         if request.transform_only:
             self.mode = "transform-only"
         elif request.regions and sorted(request.regions) != sorted(settings.regions):
@@ -178,36 +195,29 @@ class _SnapshotRun:
             files.append(local_json)
         return RegionDownload(region=region, files=sorted(files))
 
-    def _store_raw(self, region: str, download: RegionDownload) -> m.RawEntry:
-        prefix = layout.raw_run_prefix(self.provider, self.date, region, self.run_id)
+    def _store_raw(self, unit: str, files: List[str]) -> m.RawEntry:
+        """Compress and upload raw files under `<provider>/raw/<date>/<unit>/<run_id>/`."""
+        prefix = layout.raw_run_prefix(self.provider, self.date, unit, self.run_id)
         total = 0
-        for path in download.files:
+        for path in files:
             compressed = path + ".zst"
             _compress_to(path, compressed)
             total += os.path.getsize(compressed)
             self.store.put_file(
-                layout.raw_file_key(self.provider, self.date, region, self.run_id, os.path.basename(path)),
+                layout.raw_file_key(self.provider, self.date, unit, self.run_id, os.path.basename(path)),
                 compressed,
             )
             os.remove(compressed)
-        return m.make_raw_entry(prefix, len(download.files), total, self.now(), self.s.raw_retention_days)
+        return m.make_raw_entry(prefix, len(files), total, self.now(), self.s.raw_retention_days)
 
-    def _transform_and_upload(self, region: str, download: RegionDownload, region_dir: str):
-        result = transform_pricing_to_parquet(
-            TransformRequest(
-                json_files=download.files,
-                staging_dir=os.path.join(region_dir, "staging"),
-                region=region,
-                run_id=self.run_id,
-                snapshot_date=self.date,
-                log_callback=self.log,
-            )
+    def _transform_and_upload(self, region: str, loaded, region_dir: str):
+        result: TransformResult = self.transform.transform_location(
+            loaded, region, os.path.join(region_dir, "staging"), self.run_id, self.date
         )
-        if result.parse_failed_files or not result.success:
-            reason = "; ".join(result.errors) or "transform produced no tables"
-            return None, result, reason
+        if not result.ok:
+            return None, result, result.failure_reason()
         tables: Dict[str, m.RegionTableEntry] = {}
-        for table in layout.TABLES:
+        for table in layout.tables_for(self.provider):
             written = [f for f in result.files if f.table == table]
             files = []
             for f in written:
@@ -220,6 +230,13 @@ class _SnapshotRun:
                 files=files,
             )
         return tables, result, None
+
+    @staticmethod
+    def _counters(*sources: Dict[str, int]) -> Dict[str, int]:
+        merged: Dict[str, int] = {}
+        for source in sources:
+            merged.update({k: v for k, v in (source or {}).items() if k in m.REGION_COUNTERS})
+        return merged
 
     def _process_region(self, region: str, transform_lock: threading.Semaphore) -> m.RegionOutcome:
         region_dir = tempfile.mkdtemp(prefix=f"{region}-", dir=self.work_dir)
@@ -236,15 +253,18 @@ class _SnapshotRun:
                     reason=download.failure_reason(),
                     services_downloaded=len(download.files),
                     services_without_price_list=download.services_without_price_list,
+                    **self._counters(download.counters),
                 )
             raw_entry = (
                 self.previous.raw[region]
                 if self.req.transform_only
-                else self._store_raw(region, download)
+                else self._store_raw(region, download.files)
             )
             with transform_lock:  # transforms are memory-bound: one region at a time (R1)
                 self.deadline.check()
-                tables, result, reason = self._transform_and_upload(region, download, region_dir)
+                loaded = self.transform.load(download.files)
+                tables, result, reason = self._transform_and_upload(region, loaded, region_dir)
+            counters = self._counters(download.counters, result.counters)
             if tables is None:
                 return m.RegionOutcome(
                     region,
@@ -254,6 +274,7 @@ class _SnapshotRun:
                     services_downloaded=len(download.files),
                     services_without_price_list=download.services_without_price_list,
                     unparseable_prices=result.unparseable_prices,
+                    **counters,
                 )
             return m.RegionOutcome(
                 region,
@@ -264,6 +285,7 @@ class _SnapshotRun:
                 unparseable_prices=result.unparseable_prices,
                 tables=tables,
                 raw=raw_entry,
+                **counters,
             )
         except RunTimeout:
             raise
@@ -275,13 +297,86 @@ class _SnapshotRun:
 
     # --- whole run ------------------------------------------------------------------
 
+    # --- catalog download model (one download shared by every location) ----------------
+
+    def _catalog_outcomes(self) -> List[m.RegionOutcome]:
+        catalog_dir = tempfile.mkdtemp(prefix="catalog-", dir=self.work_dir)
+        try:
+            self.deadline.check()
+            raw_dir = os.path.join(catalog_dir, "raw")
+            os.makedirs(raw_dir, exist_ok=True)
+            if self.req.transform_only:
+                download = self._fetch_stored_catalog(raw_dir)
+            else:
+                download = self.downloader.download_catalog(raw_dir)
+            requests = download.counters.get("requests_made", 0)
+            info = m.CatalogInfo(
+                api_version=download.api_version or "unknown",
+                requests_made=requests,
+                throttled_responses=download.counters.get("throttled_responses"),
+            )
+            self.catalog_info = info
+            if not download.succeeded:
+                reason = f"catalog download failed: {download.error or 'no files downloaded'}"
+                return [m.RegionOutcome(r, False, download.attempts, reason=reason) for r in self.regions]
+            self.catalog_raw = (
+                self.previous.raw[providers.CATALOG_UNIT]
+                if self.req.transform_only
+                else self._store_raw(providers.CATALOG_UNIT, download.files)
+            )
+            self.deadline.check()
+            loaded = self.transform.load(download.files)
+            for name, value in self.transform.run_counters(loaded).items():
+                setattr(info, name, value)
+            outcomes = []
+            for region in self.regions:
+                self.deadline.check()
+                region_dir = tempfile.mkdtemp(prefix=f"{region}-", dir=catalog_dir)
+                try:
+                    tables, result, reason = self._transform_and_upload(region, loaded, region_dir)
+                except RunTimeout:
+                    raise
+                except Exception as e:  # one location's failure never stops the others
+                    logger.exception("Location %s failed", region)
+                    outcomes.append(m.RegionOutcome(region, False, download.attempts, reason=f"{type(e).__name__}: {e}"))
+                    continue
+                finally:
+                    shutil.rmtree(region_dir, ignore_errors=True)
+                outcomes.append(
+                    m.RegionOutcome(
+                        region,
+                        tables is not None,
+                        download.attempts,
+                        reason=reason,
+                        services_downloaded=len(download.files),
+                        unparseable_prices=result.unparseable_prices,
+                        tables=tables,
+                        **self._counters(result.counters),
+                    )
+                )
+            return outcomes
+        finally:
+            shutil.rmtree(catalog_dir, ignore_errors=True)
+
+    def _fetch_stored_catalog(self, raw_dir: str) -> CatalogDownload:
+        stored = self._fetch_stored_raw(providers.CATALOG_UNIT, raw_dir)
+        api_version = self.previous.catalog.api_version if self.previous and self.previous.catalog else ""
+        return CatalogDownload(files=stored.files, api_version=api_version, counters={"requests_made": 0})
+
+    # --- whole run ------------------------------------------------------------------
+
+    def _raw_units(self) -> List[str]:
+        if self.spec.download_model == providers.CATALOG:
+            return [providers.CATALOG_UNIT]
+        return self.regions
+
     def check_transform_only_preconditions(self) -> None:
         if not self.req.transform_only:
             return
         if self.previous is None:
             raise PreconditionError(f"no manifest for {self.date}; nothing to transform")
         missing = []
-        for region in self.regions:
+        for region in self._raw_units():
             entry = (self.previous.raw or {}).get(region)
             if entry is None or not any(True for _ in self.store.list(entry.location)):
                 missing.append(region)
@@ -292,9 +387,12 @@ class _SnapshotRun:
         self.previous = m.read_current(self.store, self.provider, self.date)
         self.check_transform_only_preconditions()
 
-        transform_lock = threading.Semaphore(self.s.transform_concurrency)
-        with ThreadPoolExecutor(max_workers=max(1, len(self.regions))) as pool:
-            outcomes = list(pool.map(lambda r: self._process_region(r, transform_lock), self.regions))
+        if self.spec.download_model == providers.CATALOG:
+            outcomes = self._catalog_outcomes()
+        else:
+            transform_lock = threading.Semaphore(self.s.transform_concurrency)
+            with ThreadPoolExecutor(max_workers=max(1, len(self.regions))) as pool:
+                outcomes = list(pool.map(lambda r: self._process_region(r, transform_lock), self.regions))
 
         self.deadline.check()
         revision = m.next_revision_number(self.store, self.provider, self.date)
@@ -309,6 +407,14 @@ class _SnapshotRun:
             requested_regions=self.regions,
             created_at=self.now(),
             revision=revision,
+            raw={providers.CATALOG_UNIT: self.catalog_raw} if self.catalog_raw else None,
+            catalog=self.catalog_info,
+            # A transform-only run rebuilds from the same raw data, so the exclusions carry over.
+            excluded_price_types=(
+                (self.previous.excluded_price_types if self.previous else None)
+                if self.req.transform_only
+                else self.downloader.excluded_price_types()
+            ),
         )
         m.write_revision(self.store, manifest)
         self.report.latest_moved = update_latest(self.store, manifest, self.now())
@@ -344,7 +450,8 @@ def run_snapshot(
     request: RunRequest,
     *,
     store: Optional[Storage] = None,
-    downloader: Optional[Downloader] = None,
+    downloader=None,
+    transform: Optional[LocationTransform] = None,
     now: Callable[[], dt.datetime] = utcnow,
     sleep: Callable[[float], None] = time.sleep,
     work_dir: Optional[str] = None,
@@ -358,9 +465,12 @@ def run_snapshot(
     notifier = notifier or Notifier.from_settings(settings)
     if work_dir:
         os.makedirs(work_dir, exist_ok=True)
-    downloader = downloader or AwsPricingDownloader(settings, log=log)
+    spec = providers.get_provider(settings.provider)
+    downloader = downloader or spec.downloader_class()(settings, log=log)
+    configured = _with_always_collected(request.regions or settings.regions, spec)
+    transform = transform or spec.transform_class()(settings, configured, log=log)
     wall_start = time.monotonic()
-    run = _SnapshotRun(settings, request, store, downloader, now, sleep, work_dir, log or logger.info)
+    run = _SnapshotRun(settings, request, store, downloader, transform, now, sleep, work_dir, log or logger.info)
     report = run.report
 
     # Hard timeout: fires even while work is blocked, unlike the deadline checks between steps.

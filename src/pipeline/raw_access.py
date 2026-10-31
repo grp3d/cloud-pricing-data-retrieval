@@ -9,7 +9,7 @@ from compression import zstd
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from src.pipeline import layout
+from src.pipeline import layout, providers
 from src.pipeline import manifest as m
 from src.pipeline.storage import Storage
 
@@ -72,6 +72,11 @@ def list_raw(store: Storage, provider: str, raw_retention_days: int) -> List[Raw
     return rows
 
 
+def ignores_regions(provider: str) -> bool:
+    """True when raw data isn't stored per location (one catalog download per run)."""
+    return providers.get_provider(provider).download_model == providers.CATALOG
+
+
 def download_raw(
     store: Storage,
     provider: str,
@@ -80,9 +85,12 @@ def download_raw(
     regions: Optional[List[str]] = None,
     decompress: bool = False,
 ) -> List[str]:
-    """Copy one snapshot's raw files to `dest/<region>/<run_id>/`. Uses the runs the current
+    """Copy one snapshot's raw files to `dest/<unit>/<run_id>/`. Uses the runs the current
     manifest records; without a manifest, every stored run for the date. The run ID in
-    the path keeps files from different runs of a region apart."""
+    the path keeps files from different runs of a unit apart. A catalog provider has one
+    unit for every location, so `regions` doesn't apply to it (see `ignores_regions`)."""
+    if ignores_regions(provider):
+        regions = None
     man = m.read_current(store, provider, snapshot_date)
     runs: Dict[Tuple[str, str], str] = {}  # (region, run_id) -> prefix
     if man and man.raw:

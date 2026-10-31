@@ -38,7 +38,7 @@ def seed(store, date, status="succeeded", *, run_n=0, created_at=None, previous=
             outcomes.append(m.RegionOutcome(region, False, 1, reason="HTTP 403"))
             continue
         tables = {}
-        for table in layout.TABLES:
+        for table in layout.tables_for("aws"):
             key = layout.parquet_file_key("aws", table, date, region, run_id)
             store.put_bytes(key, b"parquet")
             tables[table] = m.RegionTableEntry(run_id, 1, [m.DataFile(key, 7, "0" * 64, 1)])
@@ -62,7 +62,7 @@ def seed(store, date, status="succeeded", *, run_n=0, created_at=None, previous=
 
 def parquet_keys(store, date):
     return sorted(
-        o.key for t in layout.TABLES for o in store.list(layout.parquet_date_prefix("aws", t, date))
+        o.key for t in layout.tables_for("aws") for o in store.list(layout.parquet_date_prefix("aws", t, date))
     )
 
 
@@ -193,7 +193,7 @@ def test_guard_skips_file_referenced_again_before_delete(store):
         m.read_current(store, "aws", date), provider="aws", snapshot_date=date, run_id=_run_id(date, 2),
         run_info=m.new_run_info(s, "manual", "regions", NOW, NOW),
         outcomes=[m.RegionOutcome("us-east-1", True, 1, tables={
-            t: rev1.tables[t].regions["us-east-1"] for t in layout.TABLES})],
+            t: rev1.tables[t].regions["us-east-1"] for t in layout.tables_for("aws")})],
         requested_regions=["us-east-1"], created_at=NOW, revision=3,
     )
     m.write_revision(store, again)
@@ -323,3 +323,113 @@ def test_local_raw_deletion_respects_a_claim_taken_after_planning(local_store):
     assert local_store.head(key) is not None
     assert date in result["skipped_busy_dates"]
     assert result["raw_deleted"] == [] and retention.summarize(result)["raw_deleted_local"] == 0
+
+
+# --- feature 004: Azure and GCP use the same rules, and touch only their own prefix (T049) --
+
+PROVIDER_ENV = {
+    "azure": {"PIPELINE_PROVIDER": "azure", "PRICING_REGIONS": "eastus"},
+    "gcp": {"PIPELINE_PROVIDER": "gcp", "PRICING_REGIONS": "us-east1", "GCP_PRICING_API_KEY": "TEST-KEY"},
+}
+PROVIDER_LOCATIONS = {"azure": ["eastus", "global"], "gcp": ["us-east1", "global"]}
+
+
+def seed_provider(store, provider, date, status="succeeded"):
+    run_id = _run_id(date)
+    created = dt.datetime.fromisoformat(date).replace(hour=14, tzinfo=dt.timezone.utc)
+    outcomes = []
+    for location in PROVIDER_LOCATIONS[provider]:
+        if status == "failed":
+            outcomes.append(m.RegionOutcome(location, False, 1, reason="HTTP 503"))
+            continue
+        tables = {}
+        for table in layout.tables_for(provider):
+            key = layout.parquet_file_key(provider, table, date, location, run_id)
+            store.put_bytes(key, b"parquet")
+            tables[table] = m.RegionTableEntry(run_id, 1, [m.DataFile(key, 7, "0" * 64, 1)])
+        outcomes.append(m.RegionOutcome(location, True, 1, tables=tables))
+    man = m.build_revision(
+        m.read_current(store, provider, date),
+        provider=provider,
+        snapshot_date=date,
+        run_id=run_id,
+        run_info=m.new_run_info(settings(), "scheduled", "full", created, created),
+        outcomes=outcomes,
+        requested_regions=PROVIDER_LOCATIONS[provider],
+        created_at=created,
+        revision=m.next_revision_number(store, provider, date),
+    )
+    m.write_revision(store, man)
+    update_latest(store, man, created)
+    return man
+
+
+def provider_keys(store, provider, date):
+    return sorted(
+        o.key for t in layout.tables_for(provider) for o in store.list(layout.parquet_date_prefix(provider, t, date))
+    )
+
+
+def run_for(store, provider, **kw):
+    return retention.run_retention(
+        store,
+        PipelineSettings.from_env(PROVIDER_ENV[provider]),
+        now=NOW,
+        sleep=lambda s: None,
+        run_id=RETENTION_RUN,
+        **kw,
+    )
+
+
+@pytest.mark.parametrize("provider", ["azure", "gcp"])
+def test_new_providers_thin_with_the_aws_rules_and_only_their_prefix(store, provider):
+    for date in mondays(dt.date(2025, 7, 7), dt.date(2025, 8, 25)):
+        seed_provider(store, provider, date, "failed" if date == "2025-07-07" else "succeeded")
+        seed(store, date)  # AWS history for the same dates must be untouched
+    seed_provider(store, provider, "2026-09-28")
+    aws_before = sorted(o.key for o in store.list("aws/"))
+
+    result = run_for(store, provider)
+
+    kept = {k["month"]: k["snapshot_date"] for k in result["keep_monthly"]}
+    assert kept == {"2025-07": "2025-07-14", "2025-08": "2025-08-04"}
+    purged = {p["snapshot_date"] for p in result["purge_snapshots"]}
+    assert purged == {"2025-07-07", "2025-07-21", "2025-07-28", "2025-08-11", "2025-08-18", "2025-08-25"}
+    for date in purged:
+        assert m.read_current(store, provider, date).status == "purged"
+        assert provider_keys(store, provider, date) == []
+    assert provider_keys(store, provider, "2025-07-14")
+    assert sorted(o.key for o in store.list("aws/")) == aws_before
+
+
+@pytest.mark.parametrize("provider", ["azure", "gcp"])
+def test_new_providers_dry_run_changes_nothing(store, provider):
+    for date in mondays(dt.date(2025, 7, 7), dt.date(2025, 7, 28)):
+        seed_provider(store, provider, date)
+    seed_provider(store, provider, "2026-09-28")
+    before = sorted(o.key for o in store.list(f"{provider}/"))
+    result = run_for(store, provider, dry_run=True)
+    assert result["purge_snapshots"]
+    assert sorted(o.key for o in store.list(f"{provider}/")) == before
+
+
+def test_active_manifest_guard_applies_to_new_providers(store):
+    man = seed_provider(store, "gcp", "2025-07-07")
+    run_for(store, "gcp")
+    assert m.read_current(store, "gcp", "2025-07-07").status == "succeeded"  # latest is never purged
+    assert provider_keys(store, "gcp", "2025-07-07") == sorted(
+        f.path for t in man.tables.values() for r in t.regions.values() for f in r.files
+    )
+
+
+def test_local_raw_expiry_for_the_gcp_catalog_only(local_store):
+    old_gcp = layout.catalog_raw_file_key("gcp", "2026-08-03", _run_id("2026-08-03"), "skus-p0001.json")
+    old_aws = layout.raw_file_key("aws", "2026-08-03", "us-east-1", _run_id("2026-08-03"), "pricing-AmazonS3-us-east-1.json")
+    for key in (old_gcp, old_aws):
+        local_store.put_bytes(key, b"zst")
+        stamp = (NOW - dt.timedelta(days=40)).timestamp()
+        os.utime(os.path.join(local_store.root, *key.split("/")), (stamp, stamp))
+    result = run_for(local_store, "gcp")
+    assert result["raw_local"] == [old_gcp]
+    assert local_store.head(old_gcp) is None
+    assert local_store.head(old_aws) is not None

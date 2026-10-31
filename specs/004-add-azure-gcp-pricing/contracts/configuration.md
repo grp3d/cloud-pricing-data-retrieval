@@ -37,10 +37,10 @@ docker run --rm --env-file .env -v "$PWD/.localdata:/data" \
 
 ## Infrastructure variables (`infra/pipeline`, `infra/envs/<env>.tfvars`)
 
-`pricing_regions`, `schedule_expression`, `schedule_enabled`, `task_cpu` and `task_memory` are replaced by one map:
+`pricing_regions`, `schedule_expression`, `schedule_enabled`, `task_cpu` and `task_memory` are replaced by one map, `provider_runs` (`providers` is a reserved variable name in OpenTofu):
 
 ```hcl
-providers = {
+provider_runs = {
   aws = {
     locations           = ["us-east-1", "us-east-2", "us-west-1", "us-west-2", "eu-west-1", "eu-west-2", "ap-northeast-1"]
     schedule_expression = "cron(0 13 ? * MON *)"

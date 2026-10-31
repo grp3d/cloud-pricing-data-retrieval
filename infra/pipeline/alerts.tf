@@ -63,7 +63,7 @@ resource "aws_cloudwatch_event_rule" "task_crashed" {
     detail-type = ["ECS Task State Change"]
     detail = {
       clusterArn = [aws_ecs_cluster.pipeline.arn]
-      group      = ["family:${local.task_family}"]
+      group      = [for f in values(local.task_families) : "family:${f}"]
       lastStatus = ["STOPPED"]
       "$or" = [
         { containers = { exitCode = [{ "anything-but" = 0 }] } },
@@ -80,10 +80,12 @@ resource "aws_cloudwatch_event_target" "task_crashed" {
   input_transformer {
     input_paths = {
       task     = "$.detail.taskArn"
+      group    = "$.detail.group"
       stopCode = "$.detail.stopCode"
       reason   = "$.detail.stoppedReason"
       exitCode = "$.detail.containers[0].exitCode"
     }
-    input_template = "\"[cloud-pricing ${local.env}] TASK CRASHED: pipeline task <task> stopped (stopCode=<stopCode>, exitCode=<exitCode>): <reason>. Check CloudWatch Logs group ${aws_cloudwatch_log_group.pipeline.name}.\""
+    # The task group is `family:cloud-pricing-pipeline-<provider>-<env>`, so it names the provider (FR-026).
+    input_template = "\"[cloud-pricing ${local.env}] TASK CRASHED: pipeline task <task> (<group>) stopped (stopCode=<stopCode>, exitCode=<exitCode>): <reason>. Check CloudWatch Logs group ${aws_cloudwatch_log_group.pipeline.name}.\""
   }
 }

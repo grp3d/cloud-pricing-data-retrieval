@@ -1,10 +1,10 @@
 """
-Tests for src/aws_regions.py — the configurable region list (FR-001, FR-002, FR-009).
+Tests for src/aws/regions.py — the configurable region list (FR-001, FR-002, FR-009).
 """
 
 import pytest
 
-from src.aws_regions import DEFAULT_PRICING_REGIONS, resolve_regions
+from src.aws.regions import DEFAULT_PRICING_REGIONS, resolve_regions
 
 
 def test_default_pricing_regions_matches_fr_002():
@@ -44,7 +44,7 @@ def test_resolve_regions_fails_fast_when_no_regions_are_configured(monkeypatch):
     than silently returning nothing (which would make the schedule/sensor silently yield
     zero RunRequests on every tick)."""
     monkeypatch.delenv("PRICING_REGIONS", raising=False)
-    monkeypatch.setattr("src.aws_regions.DEFAULT_PRICING_REGIONS", [])
+    monkeypatch.setattr("src.aws.regions.DEFAULT_PRICING_REGIONS", [])
 
     with pytest.raises(ValueError, match="No AWS regions are configured"):
         resolve_regions()

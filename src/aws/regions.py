@@ -3,7 +3,7 @@ Configurable region list for the AWS pricing pipeline (FR-001, FR-002, FR-009).
 
 Kept as a plain module-level constant + resolver function, mirroring the
 DATA_DIRECTORY_ROOT / resolve_output_dir() override pattern already used in
-aws_pricing_api.py, rather than introducing a new configuration mechanism.
+src/aws/api.py, rather than introducing a new configuration mechanism.
 """
 
 import os

@@ -10,12 +10,13 @@ import os
 import pytest
 
 from src.pipeline import latest
+from src.pipeline import layout
 from src.pipeline import manifest as m
 from src.pipeline.config import PipelineSettings
 from tests.helpers.contracts import SCHEMA_DIR, validate_latest_doc, validate_manifest_doc
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-SPEC_CONTRACTS = os.path.join(REPO, "specs", "003-pipeline-cloud-deployment", "contracts")
+SPEC_CONTRACTS = os.path.join(REPO, "specs", "004-add-azure-gcp-pricing", "contracts")
 T0 = dt.datetime(2026, 10, 5, 13, 0, 0, tzinfo=dt.timezone.utc)
 RUN = "20261005T130000Z-111111"
 DATE = "2026-10-05"
@@ -39,7 +40,7 @@ def _ok(region):
                 )
             ],
         )
-        for t in m.TABLES
+        for t in layout.tables_for("aws")
     }
     raw = m.make_raw_entry(f"aws/raw/{DATE}/{region}/{RUN}/", 2, 99, T0, 30)
     return m.RegionOutcome(region=region, succeeded=True, attempts=1, tables=tables, raw=raw)

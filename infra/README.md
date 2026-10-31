@@ -6,12 +6,40 @@ Three root modules with separate state, split by lifecycle (research R13):
 |---|---|---|
 | `bootstrap/` | State bucket, GitHub OIDC + CI roles, account budget | Once per account, applied from a laptop |
 | `data/` | Data bucket (protected), lifecycle rules, read-only policy, off-AWS access | Rarely changed; the bucket survives everything |
-| `pipeline/` | VPC, ECR, ECS task, schedule, alerts, watchdog | Freely destroyed and re-created |
+| `pipeline/` | VPC, ECR, ECS task and schedule per provider, alerts, watchdog | Freely destroyed and re-created |
 
 Every resource is tagged `project=cloud-pricing`, `component=<stack>` and `environment=<env>`
 (`environment=shared` for bootstrap). Named resources follow `cloud-pricing-<component>-<env>`.
 Settings are documented in
-[`specs/003-pipeline-cloud-deployment/contracts/configuration.md`](../specs/003-pipeline-cloud-deployment/contracts/configuration.md).
+[`specs/003-pipeline-cloud-deployment/contracts/configuration.md`](../specs/003-pipeline-cloud-deployment/contracts/configuration.md)
+and, for Azure and GCP,
+[`specs/004-add-azure-gcp-pricing/contracts/configuration.md`](../specs/004-add-azure-gcp-pricing/contracts/configuration.md).
+
+## Providers (feature 004)
+
+The pipeline stack has one task definition and one weekly schedule per entry in
+`provider_runs` (`envs/prod.tfvars`). Each entry sets the provider's `locations`,
+`schedule_expression`, `schedule_enabled`, `task_cpu` and `task_memory`; `gcp` also sets
+`api_key_parameter`. (`providers` is reserved in OpenTofu, hence the name.) Every key must also
+be in `pricing_providers`, the data stack's list of prefixes and raw expiry rules.
+
+| Provider | Task family / schedule | Execution role |
+|---|---|---|
+| `aws` | `cloud-pricing-pipeline-<env>` (unchanged) | `cloud-pricing-task-execution-<env>` |
+| `azure` | `cloud-pricing-pipeline-azure-<env>` | `cloud-pricing-task-execution-<env>` |
+| `gcp` | `cloud-pricing-pipeline-gcp-<env>` | `cloud-pricing-task-execution-gcp-<env>`: the only role that may read the key |
+
+- **Moving from feature 003**: `moved` blocks map the old single task definition and schedule to
+  `["aws"]`, and the AWS container definition is unchanged. The first plan must show **no
+  destroy** of the AWS task definition or schedule (quickstart C2).
+- **The GCP key** is the SSM `SecureString` `/cloud-pricing/<env>/gcp-pricing-api-key`.
+  **Create it before applying with `gcp` in `provider_runs`**. OpenTofu never creates or reads
+  the parameter (an `aws_ssm_parameter` would put the decrypted value in state). It grants only
+  `ssm:GetParameters` on that one ARN to the GCP execution role, and ECS injects the value as
+  `GCP_PRICING_API_KEY` at task start. See the main README for the create and rotate command.
+- **Rollout**: Azure and GCP ship with `schedule_enabled = false`. Enable both together after
+  their on-demand runs pass (FR-033, quickstart C6). The watchdog checks only providers whose
+  schedule is enabled, and `TASK CRASHED` covers every provider's family.
 
 ## Apply order
 
@@ -57,10 +85,12 @@ docker buildx build --platform linux/arm64,linux/amd64 --push \
 
 ## Run the pipeline on demand
 
+Use the `run-pipeline` workflow (choose `provider`: `aws`, `azure` or `gcp`), or by hand:
+
 ```bash
 cd infra/pipeline
 CLUSTER=$(tofu output -raw ecs_cluster_arn)
-FAMILY=$(tofu output -raw task_definition_family)
+FAMILY=$(tofu output -json task_definition_families | jq -r .aws)   # or .azure / .gcp
 SUBNETS=$(tofu output -json subnet_ids | tr -d '[]" ')
 SG=$(tofu output -raw security_group_id)
 
@@ -75,8 +105,8 @@ Any command from `contracts/cli.md` works as the override (`run --transform-only
 
 ## Pause the schedule
 
-Set `schedule_enabled = false` in `envs/prod.tfvars` (or pass `-var schedule_enabled=false`) and
-apply the pipeline stack. Nothing else changes (FR-051).
+Set `schedule_enabled = false` for that provider in `provider_runs` (`envs/prod.tfvars`) and apply
+the pipeline stack. Nothing else changes (FR-051), and the other providers keep running.
 
 ## Alerts
 
@@ -87,18 +117,18 @@ recurs if the pipeline stack is destroyed and re-created.
 
 | Alert | Source | When |
 |---|---|---|
-| `RUN FAILED` / `RUN PARTIAL` | container | A region failed, or the snapshot isn't complete |
+| `RUN FAILED` / `RUN PARTIAL` | container | A location (or the GCP catalog) failed, or the snapshot isn't complete. The subject names the provider. |
 | `RUN REFUSED` | container | A scheduled run found another run already in progress |
 | `RETENTION ERROR` | container | Cleanup failed (the snapshot itself is unaffected) |
 | `RUN CRASHED` | container | Unhandled error (best effort, sent before exiting) |
 | `RUN SUCCEEDED` | container | Only with `success_summary_enabled = true` |
-| `TASK CRASHED` | EventBridge rule | Task stopped with a non-zero exit, OOM, or never started |
+| `TASK CRASHED` | EventBridge rule | Task stopped with a non-zero exit, OOM, or never started (for example, a missing GCP key parameter); the message names the task family, and so the provider |
 | `SCHEDULE FAILED` | CloudWatch alarm | The schedule couldn't launch the task (scheduler DLQ) |
 | `MISSED RUN` | watchdog Lambda, daily 14:00 UTC | No succeeded snapshot within `max_snapshot_age_days` (default 8) |
 | `WATCHDOG ERROR` | CloudWatch alarm | The watchdog Lambda itself failed |
 
-To test the missed-run alert, apply with `-var schedule_enabled=false -var max_snapshot_age_days=0`
-and invoke the watchdog directly:
+To test the missed-run alert, set a scheduled provider's `schedule_enabled = false` and
+`max_snapshot_age_days = 0`, apply, and invoke the watchdog directly:
 
 ```bash
 aws lambda invoke --function-name cloud-pricing-watchdog-prod /dev/stdout

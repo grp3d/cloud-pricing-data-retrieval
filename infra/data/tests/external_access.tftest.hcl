@@ -121,3 +121,19 @@ run "read_policy_lists_only_published_prefixes" {
     error_message = "Readers may list only manifests/ and parquet/ (not raw files, claims or internals)."
   }
 }
+
+# Feature 004 (T040): raw files of every provider expire on the same schedule.
+run "raw_lifecycle_per_provider" {
+  command = plan
+
+  variables {
+    pricing_providers = ["aws", "azure", "gcp"]
+  }
+
+  assert {
+    condition = toset([
+      for r in aws_s3_bucket_lifecycle_configuration.data.rule : r.filter[0].prefix if startswith(r.id, "expire-raw-")
+    ]) == toset(["aws/raw/", "azure/raw/", "gcp/raw/"])
+    error_message = "Each provider's raw/ prefix needs its own expiry rule."
+  }
+}

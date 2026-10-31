@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from src.pipeline import layout
 from src.pipeline import manifest as m
 from src.pipeline.config import PipelineSettings
 
@@ -34,7 +35,7 @@ def _tables_for(region, run_id, rows=10):
                 )
             ],
         )
-        for table in m.TABLES
+        for table in layout.tables_for("aws")
     }
 
 
@@ -78,11 +79,11 @@ def test_revision_one_succeeded():
     assert man.requested == ["eu-west-1", "us-east-1"]
     assert man.succeeded == ["eu-west-1", "us-east-1"]
     assert man.failed == []
-    assert set(man.tables) == set(m.TABLES)
+    assert set(man.tables) == set(layout.tables_for("aws"))
     assert man.tables["price_fact"].row_count == 20
     assert man.tables["price_fact"].schema_version == 1
     assert man.origin == "pipeline"
-    assert man.manifest_version == m.MANIFEST_VERSION == "1.0"
+    assert man.manifest_version == m.MANIFEST_VERSION == "1.1"
 
 
 def test_partial_and_failed_status():
@@ -168,7 +169,7 @@ def test_json_roundtrip_is_deterministic():
 def test_active_file_paths():
     man = build(None, [ok("us-east-1")], ["us-east-1"])
     paths = m.active_file_paths(man)
-    assert len(paths) == len(m.TABLES)
+    assert len(paths) == len(layout.tables_for("aws"))
     assert all(p.startswith("aws/parquet/") for p in paths)
     assert m.active_file_paths(m.build_purged_revision(man, T0)) == set()
 

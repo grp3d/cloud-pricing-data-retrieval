@@ -19,7 +19,7 @@ Add `azure` and `gcp` as providers of the existing snapshot pipeline. Each provi
 
 **Contract**: the manifest moves to version 1.1, which is additive: wider location patterns, provider-specific table names, an optional GCP `catalog` block, optional Azure `excluded_price_types`, and per-location counters.
 
-**Cloud**: per-provider task definitions and schedules come from one `providers` map. The GCP key reaches only the GCP task, from an operator-created SSM `SecureString`. Both new schedules ship disabled and are enabled together once validated.
+**Cloud**: per-provider task definitions and schedules come from one `provider_runs` map. The GCP key reaches only the GCP task, from an operator-created SSM `SecureString`. Both new schedules ship disabled and are enabled together once validated.
 
 ## Technical Context
 
@@ -32,7 +32,7 @@ Add `azure` and `gcp` as providers of the existing snapshot pipeline. Each provi
 
 **Storage**: the S3 data bucket (prod) or a local directory, through the existing `Storage` abstraction. New prefixes are `azure/` and `gcp/`. The GCP key lives in SSM Parameter Store (`SecureString`, standard tier).
 
-**Testing**: pytest, offline. Recorded and trimmed API page fixtures, fake downloaders, moto for S3. Manifests are validated against the 1.1 JSON schema. `tofu test` uses a mocked provider for the `providers` map, the `moved` blocks and the scope of the SSM grant.
+**Testing**: pytest, offline. Recorded and trimmed API page fixtures, fake downloaders, moto for S3. Manifests are validated against the 1.1 JSON schema. `tofu test` uses a mocked provider for the `provider_runs` map, the `moved` blocks and the scope of the SSM grant.
 
 **Target Platform**: ECS Fargate ARM64 (prod), Docker on a laptop, or an off-AWS host (unchanged).
 
@@ -140,7 +140,7 @@ infra/
 ├── bootstrap/github_oidc.tf        # PassRole for cloud-pricing-task-execution-gcp-<env>
 ├── data/variables.tf, envs/prod.tfvars   # pricing_providers = aws, azure, gcp
 └── pipeline/
-    ├── variables.tf                # providers map replaces pricing_regions / schedule_* / task_*
+    ├── variables.tf                # provider_runs map replaces pricing_regions / schedule_* / task_*
     ├── ecs.tf                      # task definition per provider; GCP secrets + execution role
     ├── scheduler.tf                # schedule per provider; moved blocks for aws
     ├── watchdog.tf                 # PROVIDERS = enabled providers only
