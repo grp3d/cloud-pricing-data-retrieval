@@ -31,13 +31,13 @@ These were run against the **live** sources on 2026-10-30, from the repo's venv 
 | Q5 | Page resume | [x] Offline: `tests/unit/test_gcp_api.py` (a failed page retries its own token; an expired token restarts the listing once), `tests/unit/test_http_pages.py`, and `test_catalog_page_that_keeps_failing_fails_the_snapshot` (`failed` with the reason in every location). |
 | Q6 | Transform-only | [x] Azure: revision 2, same row counts, no requests. GCP: revision 2 (Q3), `catalog.requests_made` 0. With the raw data gone, both are refused (`PreconditionError`, CLI exit 3) by `tests/integration/test_transform_only_new_providers.py`. |
 | Q7 | No-leak search | [x] The real key was searched for, without printing it, in all 121 output files (logs, manifests, `latest.json`, Parquet, decompressed raw): **0 matches**. |
-| Q8 | Reference architecture (SC-002) | [ ] **Lookups**: every component was found in the live data. **Comparison with published prices**: not done in this session; needs the owner. Values found (USD, 2026-10-30): <ul><li>Azure `eastus`: D4s v5 Linux 0.192 / hour; Premium SSD P10 LRS 19.71 / month; Blob Hot LRS 0.0208 / GB-month; PostgreSQL 144 consumption rows. Data transfer uses the `north-america` geography, which Q1 didn't collect; the lookup works on fixtures.</li><li>GCP `us-east1`: N2 0.031611 / vCPU-hour and 0.004237 / GiB-hour, so `n2-standard-4` = 0.194236 / hour; Balanced PD 0.20 / GiB-month; GCS Standard 0.026 (US multi-region) / GiB-month; 32 Premium egress SKUs; 25 Cloud SQL Postgres compute SKUs.</li></ul> |
+| Q8 | Reference architecture (SC-002) | [x] Done 2026-10-31 by automated checks; see **Q8 results** below. All 12 components: our row equals the provider's own price API exactly; 10 also confirmed on the public pricing pages (rounding allowed). |
 
 ## Quickstart Part C: cloud (`prod`)
 
 Not started. Each step needs the owner (T054):
 
-- [ ] C1: the operator creates `/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key`.
+- [x] C1: the operator creates `/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key`.
 - [ ] C2: release, and the plan shows no destroy of the AWS task definition or schedule.
 - [ ] C3: on-demand runs for `azure` and `gcp`.
 - [ ] C4: provider isolation, with a temporarily invalid GCP key.
@@ -51,3 +51,33 @@ Not started. Each step needs the owner (T054):
 ## Convergence (T056–T058, 2026-10-31)
 
 - [x] Stored live data from Q1/Q2 (2026-10-30) rebuilt offline with the stricter rules (repeated-page guard, currency check, counting absent prices, failing a location with no readable price): Azure `eastus` and `global`, and GCP's seven default regions plus `us`, `eu` and `global`, all `succeeded` with 0 unparseable prices and 0 requests. The full-catalog GCP transform still takes 3 s (peak 934 MiB).
+
+## Q8 results (SC-002, T059, 2026-10-31)
+
+Each reference component was pinned to exact rows in the stored 2026-10-30 tables (Q1/Q2; Azure data transfer from `eastus`). Two automated checks, no owner steps:
+
+1. **Price API, exact**: a direct query to the provider's own price API for the same meter or SKU, made without the pipeline's code, returned identical values, tiers included.
+2. **Public pricing page or calculator data, rounding allowed**: GCP pages list hourly prices, so monthly figures were compared ×730.
+
+| Provider | Component | Pinned row | Our price (USD) | API | Web |
+|---|---|---|---|---|---|
+| Azure `eastus` | VM D4s v5, Linux, pay-as-you-go | `Virtual Machines Dsv5 Series`, `arm_sku_name` `Standard_D4s_v5` | 0.192 / hour | ✅ | ✅ calculator 0.192 |
+| | Managed disk Premium SSD P10, LRS | `Premium SSD Managed Disks`, meter `P10 LRS Disk` | 19.71 / month | ✅ | ✅ calculator 19.71 |
+| | Blob Hot LRS data stored | `General Block Blob v2`, meter `Hot LRS Data Stored` | 0.0208 (0–50 TB), 0.019968 (50–500 TB), 0.019136 (500 TB+) / GB-month | ✅ | not in calculator data |
+| | Internet data transfer out | `Rtn Preference: MGN`, meter `Standard Data Transfer Out` | first 100 GB free, then 0.087, 0.083, 0.07, 0.05 / GB | ✅ | ✅ bandwidth page, same tiers |
+| | PostgreSQL Flexible Server GP Ddsv5, 2 vCore | `…General Purpose Ddsv5 Series Compute`, `sku_name` `2 vCore` | 0.178 / hour | ✅ | ✅ calculator 0.178 |
+| GCP `us-east1` | N2 vCPU, on demand | `N2 Instance Core running in Americas` (`BB77-5FDA-69D9`) | 0.031611 / vCPU-hour | ✅ | page prices load by script; not checked |
+| | N2 RAM, on demand | `N2 Instance Ram running in Americas` (`5B01-D157-A097`) | 0.004237 / GiB-hour | ✅ | as above |
+| | `n2-standard-4` (4 × vCPU + 16 × GiB) | derived | 0.194236 / hour | ✅ (inputs) | — |
+| | Balanced PD, zonal | `Balanced PD Capacity` (`6AE1-525F-8B80`) | 0.10 / GiB-month | ✅ | ✅ 0.000136986 / GiB-hour ≈ 0.10 |
+| | Cloud Storage Standard, US multi-region | `Standard Storage US Multi-region` (`0D5D-6E23-4250`) | 0.026 / GiB-month | ✅ | ✅ multi-region 0.000035616 / GiB-hour ≈ 0.026 (static page shows the `asia` column) |
+| | Internet egress, Premium tier, Americas to Americas | `Network Internet Data Transfer Out from Americas to Americas` (`F274-1692-F213`) | 0–1 GiB free, then 0.12, 0.11 (from 1,024 GiB), 0.08 (from 10,240 GiB) / GiB | ✅ | ✅ same tiers |
+| | Cloud SQL for PostgreSQL, zonal vCPU / RAM | `…Zonal - vCPU in Americas` (`965E-7C36-08E6`), `…Zonal - RAM in Americas` (`93DA-3F55-CB04`) | 0.0413 / vCPU-hour, 0.007 / GiB-hour | ✅ | ✅ same |
+
+**Corrections found by this check**:
+
+- The value first recorded for GCP Balanced PD (0.20) came from `Regional Balanced PD Capacity`, a different SKU; zonal is 0.10. The display name tells them apart (`Regional …`), and so does the last taxonomy category (`Lite` vs `Regional Lite`).
+- Azure internet egress is filed under the **region** (`eastus`), product `Rtn Preference: MGN` (or `Bandwidth - Routing Preference: Internet`). The geography partitions (`north-america`, …) hold only `Bandwidth Alliance` and inter-region (`Intra Continent`) prices. A `north-america` run on 2026-10-31 had 2 items. `contracts/storage-layout.md` § Lookup examples is corrected.
+- Azure tier bounds in the data are cumulative and slightly irregular (e.g. 100, 10,335, 51,295 GB), while the page rounds them to "next 10 TB" etc. They are stored as published.
+
+Scripts and downloaded pages are in the session scratchpad (not committed).
