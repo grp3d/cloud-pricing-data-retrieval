@@ -64,6 +64,11 @@ python -m src.pipeline verify                        # check files against their
 python -m src.pipeline settings                      # show effective settings
 ```
 
+A run logs one JSON line per step: when it starts, as each location's download finishes and
+its tables are stored (`done (3/6)` or `failed (3/6): <reason>`), for GCP when the catalog is
+downloaded, when the revision is published, and while retention waits for its grace period.
+The last line is the run report.
+
 ### In Docker (same image as the cloud)
 
 ```bash

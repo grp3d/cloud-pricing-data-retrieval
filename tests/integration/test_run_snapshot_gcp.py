@@ -40,7 +40,7 @@ def settings_for(store, **env):
     return PipelineSettings.from_env(base)
 
 
-def run(store, tmp_path, settings=None, fake=None, **kwargs):
+def run(store, tmp_path, settings=None, fake=None, log=None, **kwargs):
     settings = settings or settings_for(store)
     fake = fake or catalog_routes(settings)
     work = tmp_path / "work"
@@ -55,6 +55,7 @@ def run(store, tmp_path, settings=None, fake=None, **kwargs):
         sleep=lambda s: None,
         work_dir=str(work),
         notifier=notifier,
+        log=log,
     )
     return report, fake, notifier
 
@@ -162,3 +163,18 @@ def test_transform_only_rebuilds_from_stored_catalog(store, tmp_path):
     assert first.row_counts == second.row_counts
     current = m.read_current(store, "gcp", DATE)
     assert current.catalog.requests_made == 0
+
+
+def test_progress_is_logged_for_the_catalog_and_each_location(store, tmp_path):
+    lines = []
+    report, _, _ = run(store, tmp_path, log=lines.append)
+    assert lines[:3] == [
+        f"gcp {DATE}: run {report.run_id} started (full), 3 location(s): us-east1, us-central1, global",
+        "gcp: downloading the catalog",
+        "gcp: catalog downloaded, building 3 location(s)",
+    ]
+    assert [line.split(",")[0] for line in lines[3:6]] == [
+        "gcp us-east1: done (1/3)", "gcp us-central1: done (2/3)", "gcp global: done (3/3)",
+    ]
+    assert lines[-1] == f"gcp {DATE}: published revision 1 (succeeded)"
+    assert all(KEY not in line for line in lines)

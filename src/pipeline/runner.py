@@ -5,6 +5,9 @@ run_snapshot(): one pipeline run for one snapshot date (data-model.md "Run flow"
     transform one location at a time → upload Parquet → write revision + manifest →
     move latest.json (succeeded only) → report
 
+Progress goes to `log` (default: this module's logger): the start, each location as it
+finishes, the catalog steps, and the published revision. The final JSON report follows.
+
 Works identically against a local directory or S3 (FR-008). Data files are written
 before the manifest, and the manifest before latest.json (FR-013).
 
@@ -164,6 +167,8 @@ class _SnapshotRun:
         else:
             self.mode = "full"
         self.deadline = _Deadline(now, settings.run_timeout_minutes)
+        self._finished = 0
+        self._finished_lock = threading.Lock()
         self.report = RunReport(
             run_id=self.run_id,
             trigger=request.trigger,
@@ -171,6 +176,19 @@ class _SnapshotRun:
             snapshot_date=self.date,
             regions=list(self.regions),
         )
+
+    # --- progress ---------------------------------------------------------------------
+
+    def _progress(self, outcome: m.RegionOutcome) -> m.RegionOutcome:
+        with self._finished_lock:
+            self._finished += 1
+            step = f"{self._finished}/{len(self.regions)}"
+        if outcome.succeeded:
+            rows = sum(t.row_count for t in (outcome.tables or {}).values())
+            self.log(f"{self.provider} {outcome.region}: done ({step}), {rows} row(s)")
+        else:
+            self.log(f"{self.provider} {outcome.region}: failed ({step}): {outcome.reason}")
+        return outcome
 
     # --- per-region work ------------------------------------------------------------
 
@@ -308,6 +326,7 @@ class _SnapshotRun:
             if self.req.transform_only:
                 download = self._fetch_stored_catalog(raw_dir)
             else:
+                self.log(f"{self.provider}: downloading the catalog")
                 download = self.downloader.download_catalog(raw_dir)
             requests = download.counters.get("requests_made", 0)
             info = m.CatalogInfo(
@@ -325,6 +344,7 @@ class _SnapshotRun:
                 else self._store_raw(providers.CATALOG_UNIT, download.files)
             )
             self.deadline.check()
+            self.log(f"{self.provider}: catalog downloaded, building {len(self.regions)} location(s)")
             loaded = self.transform.load(download.files)
             for name, value in self.transform.run_counters(loaded).items():
                 setattr(info, name, value)
@@ -338,11 +358,13 @@ class _SnapshotRun:
                     raise
                 except Exception as e:  # one location's failure never stops the others
                     logger.exception("Location %s failed", region)
-                    outcomes.append(m.RegionOutcome(region, False, download.attempts, reason=f"{type(e).__name__}: {e}"))
+                    outcomes.append(
+                        self._progress(m.RegionOutcome(region, False, download.attempts, reason=f"{type(e).__name__}: {e}"))
+                    )
                     continue
                 finally:
                     shutil.rmtree(region_dir, ignore_errors=True)
-                outcomes.append(
+                outcomes.append(self._progress(
                     m.RegionOutcome(
                         region,
                         tables is not None,
@@ -353,7 +375,7 @@ class _SnapshotRun:
                         tables=tables,
                         **self._counters(result.counters),
                     )
-                )
+                ))
             return outcomes
         finally:
             shutil.rmtree(catalog_dir, ignore_errors=True)
@@ -386,13 +408,17 @@ class _SnapshotRun:
     def execute(self) -> m.Manifest:
         self.previous = m.read_current(self.store, self.provider, self.date)
         self.check_transform_only_preconditions()
+        self.log(
+            f"{self.provider} {self.date}: run {self.run_id} started ({self.mode}), "
+            f"{len(self.regions)} location(s): {', '.join(self.regions)}"
+        )
 
         if self.spec.download_model == providers.CATALOG:
             outcomes = self._catalog_outcomes()
         else:
             transform_lock = threading.Semaphore(self.s.transform_concurrency)
             with ThreadPoolExecutor(max_workers=max(1, len(self.regions))) as pool:
-                outcomes = list(pool.map(lambda r: self._process_region(r, transform_lock), self.regions))
+                outcomes = list(pool.map(lambda r: self._progress(self._process_region(r, transform_lock)), self.regions))
 
         self.deadline.check()
         revision = m.next_revision_number(self.store, self.provider, self.date)
@@ -418,6 +444,7 @@ class _SnapshotRun:
         )
         m.write_revision(self.store, manifest)
         self.report.latest_moved = update_latest(self.store, manifest, self.now())
+        self.log(f"{self.provider} {self.date}: published revision {revision} ({manifest.status})")
         self._retention()
         return manifest
 
@@ -466,11 +493,12 @@ def run_snapshot(
     if work_dir:
         os.makedirs(work_dir, exist_ok=True)
     spec = providers.get_provider(settings.provider)
+    log = log or logger.info
     downloader = downloader or spec.downloader_class()(settings, log=log)
     configured = _with_always_collected(request.regions or settings.regions, spec)
     transform = transform or spec.transform_class()(settings, configured, log=log)
     wall_start = time.monotonic()
-    run = _SnapshotRun(settings, request, store, downloader, transform, now, sleep, work_dir, log or logger.info)
+    run = _SnapshotRun(settings, request, store, downloader, transform, now, sleep, work_dir, log)
     report = run.report
 
     # Hard timeout: fires even while work is blocked, unlike the deadline checks between steps.

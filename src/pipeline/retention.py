@@ -194,6 +194,10 @@ def apply_retention(
     if waits:
         remaining = max((m.parse_iso(i["eligible_at"]) - now).total_seconds() for i in waits)
         if remaining > 0:
+            logger.info(
+                f"retention: waiting {remaining:.0f}s for the grace period before deleting "
+                f"{len(waits)} superseded file(s)"
+            )
             sleep(remaining)
             result["waited_seconds"] = remaining
 

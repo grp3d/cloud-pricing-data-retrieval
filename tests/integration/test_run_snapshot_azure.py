@@ -53,7 +53,7 @@ def source_for(settings):
     return fake
 
 
-def run(store, tmp_path, settings=None, fake=None, regions=None, **kwargs):
+def run(store, tmp_path, settings=None, fake=None, regions=None, log=None, **kwargs):
     settings = settings or settings_for(store)
     fake = fake or source_for(settings)
     work = tmp_path / "work"
@@ -68,6 +68,7 @@ def run(store, tmp_path, settings=None, fake=None, regions=None, **kwargs):
         sleep=lambda s: None,
         work_dir=str(work),
         notifier=notifier,
+        log=log,
     )
     return report, fake, notifier
 
@@ -162,3 +163,32 @@ def test_an_azure_claim_does_not_block_aws(store, tmp_path):
             work_dir=str(work),
         )
     assert report.outcome == "completed" and report.snapshot_status == "succeeded"
+
+
+def test_progress_is_logged_as_each_location_finishes(store, tmp_path):
+    lines = []
+    report, _, _ = run(store, tmp_path, log=lines.append)
+    assert lines[0].startswith(f"azure {DATE}: run {report.run_id} started (full), 3 location(s): ")
+    done = [line for line in lines if ": done (" in line]
+    assert len(done) == 3
+    assert sorted(line.split(":")[0] for line in done) == ["azure eastus", "azure global", "azure north-america"]
+    assert {line.split("(")[1].split(")")[0] for line in done} == {"1/3", "2/3", "3/3"}
+    assert lines[-1] == f"azure {DATE}: published revision 1 (succeeded)"
+
+
+def test_a_failed_location_is_logged_with_its_reason(store, tmp_path):
+    settings = settings_for(store)
+    fake = source_for(settings).fail(EASTUS_P2, http_error(503))
+    lines = []
+    run(store, tmp_path, settings=settings, fake=fake, log=lines.append)
+    failed = [line for line in lines if line.startswith("azure eastus: failed (")]
+    assert len(failed) == 1 and "503" in failed[0]
+    assert lines[-1] == f"azure {DATE}: published revision 1 (partial)"
+
+
+def test_progress_goes_to_the_log_by_default(store, tmp_path, caplog):
+    caplog.set_level("INFO", logger="src.pipeline.runner")
+    report, _, _ = run(store, tmp_path)
+    messages = [r.getMessage() for r in caplog.records if r.name == "src.pipeline.runner"]
+    assert any(msg.startswith(f"azure {DATE}: run {report.run_id} started") for msg in messages)
+    assert f"azure {DATE}: published revision 1 (succeeded)" in messages
