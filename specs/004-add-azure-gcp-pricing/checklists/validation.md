@@ -35,18 +35,24 @@ These were run against the **live** sources on 2026-10-30, from the repo's venv 
 
 ## Quickstart Part C: cloud (`prod`)
 
-Not started. Each step needs the owner (T054):
+Released as `v0.1.0` on 2026-11-10. The owner ran C1–C3 and C6, and decided to skip C4, C5, C8, C9
+and C10 in the cloud: isolation, rotation and the no-leak search are covered offline (Q4, Q7 and
+the integration tests), and the published files were inspected by hand.
 
 - [x] C1: the operator creates `/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key`.
-- [ ] C2: release, and the plan shows no destroy of the AWS task definition or schedule.
-- [ ] C3: on-demand runs for `azure` and `gcp`.
-- [ ] C4: provider isolation, with a temporarily invalid GCP key.
-- [ ] C5: key rotation without a redeploy.
-- [ ] C9: a local run and a cloud run for the same location agree (SC-009).
-- [ ] C10: cloud no-leak search (SC-006).
-- [ ] C6: enable both schedules together.
-- [ ] C8: AWS unchanged.
-- [ ] C7: four weeks unattended (SC-001, SC-007).
+- [x] C2: release `v0.1.0`. The plan showed no destroy of the AWS schedule. The AWS task definition
+  was replaced only for the new image tag (a new revision in the same family), as on every release;
+  the `moved` blocks mapped it and the schedule to `["aws"]`. Azure and GCP were created `DISABLED`.
+- [x] C3: on-demand runs for `azure` and `gcp` (run-pipeline), both `succeeded`. The plan showed the
+  GCP task's key under `secrets` as an SSM `valueFrom`, with no plain value.
+- [ ] C4: provider isolation, with a temporarily invalid GCP key. Skipped by the owner.
+- [ ] C5: key rotation without a redeploy. Skipped by the owner.
+- [ ] C9: a local run and a cloud run for the same location agree (SC-009). Skipped by the owner.
+- [ ] C10: cloud no-leak search (SC-006). Skipped by the owner.
+- [x] C6: both schedules set to `schedule_enabled = true` in `infra/envs/prod.tfvars` (commit
+  `5eaf8c4`, 2026-11-10). They take effect with the next release tag.
+- [ ] C8: AWS unchanged. Skipped by the owner.
+- [ ] C7: four weeks unattended (SC-001, SC-007). Watch the Mondays after the schedules are deployed.
 
 ## Convergence (T056–T058, 2026-10-31)
 
