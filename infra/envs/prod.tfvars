@@ -27,14 +27,14 @@ provider_runs = {
     locations = ["eastus", "eastus2", "westus", "westus2", "westeurope", "uksouth", "japaneast",
     "north-america", "europe", "asia", "intercontinental"]
     schedule_expression = "cron(0 13 ? * MON *)"
-    schedule_enabled    = false
+    schedule_enabled    = true
     task_cpu            = 1024
     task_memory         = 2048
   }
   gcp = {
     locations           = ["us-east1", "us-east4", "us-west1", "us-west2", "europe-west1", "europe-west2", "asia-northeast1"]
     schedule_expression = "cron(0 13 ? * MON *)"
-    schedule_enabled    = false
+    schedule_enabled    = true
     task_cpu            = 1024
     task_memory         = 2048                                                     # full-catalog transform peaks at ~0.9 GiB (measured 2026-10-30)
     api_key_parameter   = "/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key" # created by the operator (quickstart C1)
