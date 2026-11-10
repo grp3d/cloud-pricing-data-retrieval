@@ -10,12 +10,10 @@ Three root modules with separate state, split by lifecycle (research R13):
 
 Every resource is tagged `project=cloud-pricing`, `component=<stack>` and `environment=<env>`
 (`environment=shared` for bootstrap). Named resources follow `cloud-pricing-<component>-<env>`.
-Settings are documented in
-[`specs/003-pipeline-cloud-deployment/contracts/configuration.md`](../specs/003-pipeline-cloud-deployment/contracts/configuration.md)
-and, for Azure and GCP,
-[`specs/004-add-azure-gcp-pricing/contracts/configuration.md`](../specs/004-add-azure-gcp-pricing/contracts/configuration.md).
+Settings and OpenTofu variables are documented in
+[`docs/configuration.md`](../docs/configuration.md).
 
-## Providers (feature 004)
+## Providers
 
 The pipeline stack has one task definition and one weekly schedule per entry in
 `provider_runs` (`envs/prod.tfvars`). Each entry sets the provider's `locations`,
@@ -99,7 +97,7 @@ aws ecs run-task --cluster "$CLUSTER" --task-definition "$FAMILY" --launch-type 
   --overrides '{"containerOverrides":[{"name":"pipeline","command":["run","--trigger","manual","--regions","us-east-1"]}]}'
 ```
 
-Any command from `contracts/cli.md` works as the override (`run --transform-only …`,
+Any command from [`docs/cli.md`](../docs/cli.md) works as the override (`run --transform-only …`,
 `retention --dry-run`, `raw list`, `verify`, …). Logs are in the CloudWatch log group from the
 `log_group_name` output.
 
