@@ -2,8 +2,8 @@
 
 from click.testing import CliRunner
 
-from src.aws_pricing_api import CredentialsError, PricingJobResult
-from src.aws_pricing_cli import fetch_pricing
+from src.aws.api import CredentialsError, PricingJobResult
+from src.aws.cli import fetch_pricing
 
 
 def _capture(monkeypatch, result=None, exc=None):
@@ -15,7 +15,7 @@ def _capture(monkeypatch, result=None, exc=None):
             raise exc
         return result or PricingJobResult(downloaded_files=["a.json"], success=True)
 
-    monkeypatch.setattr("src.aws_pricing_cli.run_pricing_job", fake_run)
+    monkeypatch.setattr("src.aws.cli.run_pricing_job", fake_run)
     return seen
 
 

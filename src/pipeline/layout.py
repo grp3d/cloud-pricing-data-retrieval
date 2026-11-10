@@ -1,26 +1,28 @@
 """
 Storage key builders — the single source of truth for contracts/storage-layout.md.
 
-    <provider>/raw/<date>/<region>/<run_id>/pricing-<Service>-<region>.json.zst
-    <provider>/parquet/<table>/snapshot_date=<date>/region=<region>/part-<run_id>[-<n>].parquet
+    <provider>/raw/<date>/<unit>/<run_id>/<file>.json.zst        (unit: a location, or `catalog`)
+    <provider>/parquet/<table>/snapshot_date=<date>/region=<location>/part-<run_id>[-<n>].parquet
     <provider>/manifests/latest.json
     <provider>/manifests/<date>/manifest.json
     <provider>/manifests/<date>/revisions/<NNNN>.json
     <provider>/claims/<date>.json
 
 Inputs are validated so a malformed value can never resolve to another snapshot's keys.
+A location is a region, a multi-region location or `global` (feature 004, FR-013); table
+names come from the provider's spec (src/pipeline/providers.py).
 """
 
 import datetime as dt
 import re
 import secrets
-from typing import Optional
+from typing import Optional, Tuple
 
-TABLES = ("service_dim", "product_dim", "product_attribute", "region_dim", "price_fact")
+from src.pipeline import providers
 
 _PROVIDER_RE = re.compile(r"[a-z0-9]+")
 _DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-_REGION_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)+")
+_REGION_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 _RUN_ID_RE = re.compile(r"[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}")
 _REVISION_KEY_RE = re.compile(r".*/revisions/([0-9]{4,})\.json")
 
@@ -50,9 +52,13 @@ def _run_id(value: str) -> str:
     return value
 
 
-def _table(value: str) -> str:
-    if value not in TABLES:
-        raise ValueError(f"Invalid table {value!r}")
+def tables_for(provider: str) -> Tuple[str, ...]:
+    return providers.tables_for(_provider(provider))
+
+
+def _table(provider: str, value: str) -> str:
+    if value not in tables_for(provider):
+        raise ValueError(f"Invalid table {value!r} for provider {provider!r}")
     return value
 
 
@@ -91,10 +97,19 @@ def raw_file_key(provider: str, snapshot_date: str, region: str, run_id: str, fi
     return raw_run_prefix(provider, snapshot_date, region, run_id) + name
 
 
+def catalog_raw_prefix(provider: str, snapshot_date: str, run_id: str) -> str:
+    """Raw prefix of a catalog-wide download (one unit shared by every location)."""
+    return raw_run_prefix(provider, snapshot_date, providers.CATALOG_UNIT, run_id)
+
+
+def catalog_raw_file_key(provider: str, snapshot_date: str, run_id: str, file_name: str) -> str:
+    return raw_file_key(provider, snapshot_date, providers.CATALOG_UNIT, run_id, file_name)
+
+
 # --- parquet -------------------------------------------------------------------------
 
 def parquet_table_prefix(provider: str, table: str) -> str:
-    return f"{_provider(provider)}/parquet/{_table(table)}/"
+    return f"{_provider(provider)}/parquet/{_table(provider, table)}/"
 
 
 def parquet_date_prefix(provider: str, table: str, snapshot_date: str) -> str:

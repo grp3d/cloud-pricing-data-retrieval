@@ -1,0 +1,77 @@
+{
+ "services": [
+  {
+   "name": "services/24E6-581D-38E5",
+   "serviceId": "24E6-581D-38E5",
+   "displayName": "BigQuery",
+   "businessEntityName": "businessEntities/GCP"
+  },
+  {
+   "name": "services/2FEA-DF04-685C",
+   "serviceId": "2FEA-DF04-685C",
+   "displayName": "Datashare",
+   "businessEntityName": "businessEntities/GCP"
+  },
+  {
+   "name": "services/650B-3C82-34DB",
+   "serviceId": "650B-3C82-34DB",
+   "displayName": "BigQuery BI Engine",
+   "businessEntityName": "businessEntities/GCP"
+  },
+  {
+   "name": "services/6F81-5844-456A",
+   "serviceId": "6F81-5844-456A",
+   "displayName": "Compute Engine",
+   "businessEntityName": "businessEntities/GCP"
+  },
+  {
+   "name": "services/7C52-19D8-71EE",
+   "serviceId": "7C52-19D8-71EE",
+   "displayName": "Cloud Healthcare",
+   "businessEntityName": "businessEntities/GCP"
+  },
+  {
+   "name": "services/8534-F08B-BEBD",
+   "serviceId": "8534-F08B-BEBD",
+   "displayName": "Cloud Domains",
+   "businessEntityName": "businessEntities/GCP"
+  },
+  {
+   "name": "services/8C3B-F556-9F01",
+   "serviceId": "8C3B-F556-9F01",
+   "displayName": "Google Maps Tile API",
+   "businessEntityName": "businessEntities/Maps"
+  },
+  {
+   "name": "services/9662-B51E-5089",
+   "serviceId": "9662-B51E-5089",
+   "displayName": "Cloud SQL",
+   "businessEntityName": "businessEntities/GCP"
+  },
+  {
+   "name": "services/C7E2-9256-1C43",
+   "serviceId": "C7E2-9256-1C43",
+   "displayName": "Vertex AI",
+   "businessEntityName": "businessEntities/GCP"
+  },
+  {
+   "name": "services/EDEB-A347-20B4",
+   "serviceId": "EDEB-A347-20B4",
+   "displayName": "Collibra collibra-data-intelligence-cloud-gcp",
+   "businessEntityName": "businessEntities/GCP"
+  },
+  {
+   "name": "services/EE2C-7FAC-5E08",
+   "serviceId": "EE2C-7FAC-5E08",
+   "displayName": "Cloud Firestore",
+   "businessEntityName": "businessEntities/GCP"
+  },
+  {
+   "name": "services/F17B-412E-CB64",
+   "serviceId": "F17B-412E-CB64",
+   "displayName": "App Engine",
+   "businessEntityName": "businessEntities/GCP"
+  }
+ ],
+ "nextPageToken": ""
+}

@@ -1,0 +1,53 @@
+{
+ "BillingCurrency": "USD",
+ "CustomerEntityId": "Default",
+ "CustomerEntityType": "Retail",
+ "Items": [
+  {
+   "currencyCode": "USD",
+   "tierMinimumUnits": 0.0,
+   "retailPrice": 0.04,
+   "unitPrice": 0.04,
+   "armRegionName": "North America",
+   "location": "North America",
+   "effectiveStartDate": "2020-07-01T00:00:00Z",
+   "meterId": "b9668c9e-b531-5273-b220-9bb4bbdfe268",
+   "meterName": "Standard Data Transfer Out",
+   "productId": "DZH318Z0DDZ3",
+   "skuId": "DZH318Z0DDZ3/0002",
+   "productName": "Bandwidth Alliance",
+   "skuName": "Standard",
+   "serviceName": "Bandwidth",
+   "serviceId": "DZH318FHKQ5W",
+   "serviceFamily": "Networking",
+   "unitOfMeasure": "1 GB",
+   "type": "Consumption",
+   "isPrimaryMeterRegion": true,
+   "armSkuName": ""
+  },
+  {
+   "currencyCode": "USD",
+   "tierMinimumUnits": 0.0,
+   "retailPrice": 0.02,
+   "unitPrice": 0.02,
+   "armRegionName": "North America",
+   "location": "North America",
+   "effectiveStartDate": "2020-07-01T00:00:00Z",
+   "meterId": "dbefcfc1-e3f6-409b-be6d-9cd7b00724a5",
+   "meterName": "Intra Continent Data Transfer Out",
+   "productId": "DZH318Z0C5TM",
+   "skuId": "DZH318Z0C5TM/0007",
+   "productName": "Bandwidth Inter-Region",
+   "skuName": "Intra Continent",
+   "serviceName": "Bandwidth",
+   "serviceId": "DZH318FHKQ5W",
+   "serviceFamily": "Networking",
+   "unitOfMeasure": "1 GB",
+   "type": "Consumption",
+   "isPrimaryMeterRegion": true,
+   "armSkuName": ""
+  }
+ ],
+ "NextPageLink": null,
+ "Count": 2
+}

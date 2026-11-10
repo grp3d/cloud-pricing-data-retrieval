@@ -1,6 +1,11 @@
 # Missed-run watchdog (FR-027, research R11): a small Lambda, independent of the pipeline
 # image, checks latest.json daily and alerts if the newest succeeded snapshot is too old.
 
+locals {
+  # Only providers that run on a schedule can miss a run (FR-026).
+  watched_providers = sort([for p, c in var.provider_runs : p if c.schedule_enabled])
+}
+
 data "archive_file" "watchdog" {
   type        = "zip"
   source_file = "${path.module}/../../src/watchdog/freshness_check.py"
@@ -31,7 +36,7 @@ data "aws_iam_policy_document" "watchdog" {
   statement {
     sid       = "ReadLatest"
     actions   = ["s3:GetObject"]
-    resources = [for p in var.pricing_providers : "${data.aws_s3_bucket.data.arn}/${p}/manifests/latest.json"]
+    resources = [for p in local.watched_providers : "${data.aws_s3_bucket.data.arn}/${p}/manifests/latest.json"]
   }
 
   # Without ListBucket a missing key reads as AccessDenied instead of NoSuchKey.
@@ -74,7 +79,7 @@ resource "aws_lambda_function" "watchdog" {
     variables = {
       DATA_BUCKET           = data.aws_s3_bucket.data.bucket
       DATA_PREFIX           = ""
-      PROVIDERS             = join(",", var.pricing_providers)
+      PROVIDERS             = join(",", local.watched_providers)
       MAX_SNAPSHOT_AGE_DAYS = tostring(var.max_snapshot_age_days)
       ALERT_TOPIC_ARN       = aws_sns_topic.alerts.arn
       ENVIRONMENT           = local.env

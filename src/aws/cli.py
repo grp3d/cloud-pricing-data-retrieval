@@ -1,7 +1,7 @@
 """
-aws_pricing_cli.py
+src/aws/cli.py
 
-Thin CLI wrapper around aws_pricing_api.py.
+Thin CLI wrapper around src/aws/api.py.
 All business logic lives in pricing_api; this module only handles
 argument parsing and terminal output.
 """
@@ -10,7 +10,7 @@ import sys
 
 import click
 
-from src.aws_pricing_api import (
+from src.aws.api import (
     CREDENTIAL_HELP,
     CredentialsError,
     PricingJobRequest,

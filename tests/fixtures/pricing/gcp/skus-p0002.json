@@ -1,0 +1,173 @@
+{
+ "skus": [
+  {
+   "name": "skus/53CC-D5FE-D895",
+   "skuId": "53CC-D5FE-D895",
+   "displayName": "Licensing Fee for Standard Plan",
+   "service": "services/2FEA-DF04-685C",
+   "productTaxonomy": {},
+   "geoTaxonomy": {
+    "type": "TYPE_GLOBAL",
+    "globalMetadata": {}
+   }
+  },
+  {
+   "name": "skus/0164-F76D-680A",
+   "skuId": "0164-F76D-680A",
+   "displayName": "Map Tiles API: 2D Map Tiles",
+   "service": "services/8C3B-F556-9F01",
+   "productTaxonomy": {
+    "taxonomyCategories": [
+     {
+      "category": "Maps Platform"
+     },
+     {
+      "category": "Maps"
+     },
+     {
+      "category": "Tile API"
+     }
+    ]
+   },
+   "geoTaxonomy": {
+    "type": "TYPE_GLOBAL",
+    "globalMetadata": {}
+   }
+  },
+  {
+   "name": "skus/0002-17F9-0731",
+   "skuId": "0002-17F9-0731",
+   "displayName": "Structured Storage (Montreal)",
+   "service": "services/7C52-19D8-71EE",
+   "productTaxonomy": {
+    "taxonomyCategories": [
+     {
+      "category": "GCP"
+     },
+     {
+      "category": "Cloud AI and Industry Solutions"
+     },
+     {
+      "category": "AI Industry Solutions"
+     },
+     {
+      "category": "HCLS"
+     },
+     {
+      "category": "Cloud Healthcare"
+     },
+     {
+      "category": "Storage"
+     }
+    ]
+   },
+   "geoTaxonomy": {
+    "type": "TYPE_REGIONAL",
+    "regionalMetadata": {
+     "region": {
+      "region": "northamerica-northeast1"
+     }
+    }
+   }
+  },
+  {
+   "name": "skus/00DF-CF91-B364",
+   "skuId": "00DF-CF91-B364",
+   "displayName": "Collibra Consumer - Private (3 year)",
+   "service": "services/EDEB-A347-20B4",
+   "productTaxonomy": {
+    "taxonomyCategories": [
+     {
+      "category": "GCP"
+     },
+     {
+      "category": "Marketplace Services"
+     },
+     {
+      "category": "Collibra"
+     },
+     {
+      "category": "Collibra collibra-data-intelligence-cloud-gcp"
+     }
+    ]
+   },
+   "geoTaxonomy": {
+    "type": "TYPE_GLOBAL",
+    "globalMetadata": {}
+   }
+  },
+  {
+   "name": "skus/001B-3860-A0CF",
+   "skuId": "001B-3860-A0CF",
+   "displayName": "Cloud Firestore Enterprise Real-time Update Units Dammam",
+   "service": "services/EE2C-7FAC-5E08",
+   "productTaxonomy": {
+    "taxonomyCategories": [
+     {
+      "category": "GCP"
+     },
+     {
+      "category": "Databases"
+     },
+     {
+      "category": "Firestore"
+     },
+     {
+      "category": "Ops"
+     },
+     {
+      "category": "Enterprise"
+     }
+    ]
+   },
+   "geoTaxonomy": {
+    "type": "TYPE_REGIONAL",
+    "regionalMetadata": {
+     "region": {
+      "region": "me-central2"
+     }
+    }
+   }
+  },
+  {
+   "name": "skus/006A-EFE2-3E22",
+   "skuId": "006A-EFE2-3E22",
+   "displayName": "Vertex AI: Online/Batch Prediction C2 Predefined Instance Ram running in South Carolina",
+   "service": "services/C7E2-9256-1C43",
+   "productTaxonomy": {
+    "taxonomyCategories": [
+     {
+      "category": "GCP"
+     },
+     {
+      "category": "Cloud AI"
+     },
+     {
+      "category": "Vertex AI Platform"
+     },
+     {
+      "category": "Vertex AI Infra"
+     },
+     {
+      "category": "Inference"
+     },
+     {
+      "category": "Custom Inference"
+     },
+     {
+      "category": "MEMORY"
+     }
+    ]
+   },
+   "geoTaxonomy": {
+    "type": "TYPE_REGIONAL",
+    "regionalMetadata": {
+     "region": {
+      "region": "us-east1"
+     }
+    }
+   }
+  }
+ ],
+ "nextPageToken": ""
+}

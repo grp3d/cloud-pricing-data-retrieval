@@ -1,5 +1,6 @@
-# Weekly schedule → ECS RunTask (FR-002, research R2). Set schedule_enabled = false to
-# pause cloud runs while keeping everything else deployed (FR-051).
+# Weekly schedule per provider → ECS RunTask (FR-002, FR-025, research R2). Set a
+# provider's schedule_enabled = false to pause its cloud runs while keeping everything else
+# deployed (FR-051).
 
 data "aws_iam_policy_document" "scheduler_assume" {
   statement {
@@ -23,9 +24,11 @@ resource "aws_iam_role" "scheduler" {
 
 data "aws_iam_policy_document" "scheduler" {
   statement {
-    sid       = "RunPipelineTask"
-    actions   = ["ecs:RunTask"]
-    resources = ["arn:${data.aws_partition.current.partition}:ecs:${var.aws_region}:${local.account_id}:task-definition/${local.task_family}:*"]
+    sid     = "RunPipelineTask"
+    actions = ["ecs:RunTask"]
+    resources = [
+      for f in values(local.task_families) : "arn:${data.aws_partition.current.partition}:ecs:${var.aws_region}:${local.account_id}:task-definition/${f}:*"
+    ]
     condition {
       test     = "ArnEquals"
       variable = "ecs:cluster"
@@ -36,7 +39,7 @@ data "aws_iam_policy_document" "scheduler" {
   statement {
     sid       = "PassTaskRoles"
     actions   = ["iam:PassRole"]
-    resources = [aws_iam_role.execution.arn, aws_iam_role.task.arn]
+    resources = concat([aws_iam_role.execution.arn, aws_iam_role.task.arn], aws_iam_role.execution_gcp[*].arn)
   }
 
   statement {
@@ -76,10 +79,11 @@ resource "aws_iam_role_policy" "scheduler" {
 }
 
 resource "aws_scheduler_schedule" "weekly" {
-  name                         = "cloud-pricing-pipeline-${local.env}"
-  schedule_expression          = var.schedule_expression
+  for_each                     = var.provider_runs
+  name                         = local.task_families[each.key]
+  schedule_expression          = each.value.schedule_expression
   schedule_expression_timezone = "UTC"
-  state                        = var.schedule_enabled ? "ENABLED" : "DISABLED"
+  state                        = each.value.schedule_enabled ? "ENABLED" : "DISABLED"
 
   flexible_time_window {
     mode = "OFF"
@@ -90,7 +94,7 @@ resource "aws_scheduler_schedule" "weekly" {
     role_arn = aws_iam_role.scheduler.arn
 
     ecs_parameters {
-      task_definition_arn = aws_ecs_task_definition.pipeline.arn_without_revision
+      task_definition_arn = aws_ecs_task_definition.pipeline[each.key].arn_without_revision
       launch_type         = "FARGATE"
       task_count          = 1
 
@@ -117,4 +121,9 @@ resource "aws_scheduler_schedule" "weekly" {
       }]
     })
   }
+}
+
+moved {
+  from = aws_scheduler_schedule.weekly
+  to   = aws_scheduler_schedule.weekly["aws"]
 }

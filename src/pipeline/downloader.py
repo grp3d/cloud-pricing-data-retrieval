@@ -1,13 +1,16 @@
 """
-Downloader interface the runner uses to fetch one region's raw pricing files.
+Downloader base classes the runner uses to fetch raw pricing files.
 
-The runner only depends on `Downloader`; `AwsPricingDownloader` is the production
-implementation (a thin wrapper over src.aws_pricing_api.run_pricing_job), and tests
-inject a fake (tests/helpers/fake_pricing.py) so runs work offline.
+- `Downloader`: one location at a time (`per_location` providers).
+- `CatalogDownloader`: one catalog-wide download shared by every location (`catalog`).
+
+Each provider package extends one of them in `src/<provider>/downloader.py`, and tests
+inject fakes that extend them too (tests/helpers/fake_pricing.py), so runs work offline.
 """
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Protocol
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -28,6 +31,8 @@ class RegionDownload:
     max_attempts: int = 0
     # Set when the whole region failed before any per-file work (e.g. invalid region).
     error: Optional[str] = None
+    # Optional manifest counters for this location: requests_made, throttled_responses.
+    counters: Dict[str, int] = field(default_factory=dict)
 
     @property
     def succeeded(self) -> bool:
@@ -46,45 +51,34 @@ class RegionDownload:
         return ""
 
 
-class Downloader(Protocol):
+@dataclass
+class CatalogDownload:
+    """Outcome of a catalog-wide download into a local directory."""
+
+    files: List[str] = field(default_factory=list)
+    api_version: str = ""
+    error: Optional[str] = None
+    attempts: int = 0
+    # requests_made, throttled_responses (manifest `catalog` block)
+    counters: Dict[str, int] = field(default_factory=dict)
+
+    @property
+    def succeeded(self) -> bool:
+        return self.error is None and bool(self.files)
+
+
+class Downloader(ABC):
+    @abstractmethod
     def download_region(self, region: str, dest_dir: str) -> RegionDownload: ...
 
+    def excluded_price_types(self) -> List[str]:
+        """Source price types deliberately not requested (manifest `excluded_price_types`)."""
+        return []
 
-class AwsPricingDownloader:
-    """Downloads every service's price list for a region via the AWS Price List API."""
 
-    def __init__(self, settings, log: Optional[Callable[[str], None]] = None):
-        self._settings = settings
-        self._log = log
+class CatalogDownloader(ABC):
+    @abstractmethod
+    def download_catalog(self, dest_dir: str) -> CatalogDownload: ...
 
-    def download_region(self, region: str, dest_dir: str) -> RegionDownload:
-        from src.aws_pricing_api import PricingJobRequest, run_pricing_job
-        from src.pipeline.retry import RetryPolicy
-
-        request = PricingJobRequest(
-            region=region,
-            output_dir=dest_dir,
-            output_format="json",
-            all_services=True,
-            max_raw_download_workers=self._settings.max_raw_download_workers,
-            retry_policy=RetryPolicy.from_settings(self._settings),
-            log_callback=self._log,
-        )
-        try:
-            result = run_pricing_job(request)
-        except Exception as e:  # credentials, invalid region, API errors
-            return RegionDownload(region=region, error=f"{type(e).__name__}: {e}"[:500])
-
-        outcome = RegionDownload(
-            region=region,
-            files=list(result.downloaded_files),
-            failed_downloads=[
-                FailedDownload(f["service"], f["reason"], f["attempts"])
-                for f in result.failed_downloads
-            ],
-            services_without_price_list=result.services_without_price_list,
-            max_attempts=result.max_attempts,
-        )
-        if not outcome.files and not outcome.failed_downloads:
-            outcome.error = "; ".join(result.errors) or "no pricing files downloaded"
-        return outcome
+    def excluded_price_types(self) -> List[str]:
+        return []

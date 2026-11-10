@@ -1,0 +1,309 @@
+{
+ "prices": [
+  {
+   "name": "skus/53CC-D5FE-D895/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD"
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "h",
+       "unitDescription": "hour",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "skus/0164-F76D-680A/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD"
+        }
+       },
+       {
+        "startAmount": {
+         "value": "100000"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 600000000
+        }
+       },
+       {
+        "startAmount": {
+         "value": "1000000"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 480000000
+        }
+       },
+       {
+        "startAmount": {
+         "value": "5000000"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 360000000
+        }
+       },
+       {
+        "startAmount": {
+         "value": "10000000"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 180000000
+        }
+       },
+       {
+        "startAmount": {
+         "value": "50000000"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 45000000
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "count",
+       "unitDescription": "count",
+       "unitQuantity": {
+        "value": "1000"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "skus/0002-17F9-0731/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD"
+        }
+       },
+       {
+        "startAmount": {
+         "value": "1"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 390000000
+        }
+       },
+       {
+        "startAmount": {
+         "value": "1024"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 340000000
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "GiBy.mo",
+       "unitDescription": "gibibyte month",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "skus/00DF-CF91-B364/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "unspecified"
+    }
+   ]
+  },
+  {
+   "name": "skus/001B-3860-A0CF/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": "12.5x"
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "count",
+       "unitDescription": "count",
+       "unitQuantity": {
+        "value": "1000000"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    },
+    {
+     "consumptionModel": "consumptionModels/2FD9-44B6-D2AC",
+     "consumptionModelDescription": "Cloud Firestore CUD - 3 Year",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 288000000
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "count",
+       "unitDescription": "count",
+       "unitQuantity": {
+        "value": "1000000"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    },
+    {
+     "consumptionModel": "consumptionModels/3892-BA17-92A7",
+     "consumptionModelDescription": "Cloud Firestore CUD - 1 Year",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 384000000
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "count",
+       "unitDescription": "count",
+       "unitQuantity": {
+        "value": "1000000"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "skus/0001-0118-796B/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 74900000
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "h",
+       "unitDescription": "hour",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "nextPageToken": ""
+}

@@ -1,4 +1,4 @@
-# Pipeline stack behavior that depends on inputs (tasks T092, SC-008, FR-051).
+# Pipeline stack behavior that depends on inputs (tasks T092, SC-008, FR-051; feature 004 T045).
 # Runs offline against a mocked AWS provider: `tofu test` in infra/pipeline.
 
 mock_provider "aws" {
@@ -72,7 +72,7 @@ run "off_aws_writer_disabled" {
     error_message = "No grant for the writer role while off-AWS access is disabled."
   }
   assert {
-    condition     = aws_scheduler_schedule.weekly.state == "ENABLED"
+    condition     = aws_scheduler_schedule.weekly["aws"].state == "ENABLED"
     error_message = "The schedule is enabled by default."
   }
 }
@@ -100,11 +100,19 @@ run "schedule_can_be_paused" {
   }
 
   variables {
-    schedule_enabled = false
+    provider_runs = {
+      aws = {
+        locations           = ["us-east-1"]
+        schedule_expression = "cron(0 13 ? * MON *)"
+        schedule_enabled    = false
+        task_cpu            = 1024
+        task_memory         = 8192
+      }
+    }
   }
 
   assert {
-    condition     = aws_scheduler_schedule.weekly.state == "DISABLED"
+    condition     = aws_scheduler_schedule.weekly["aws"].state == "DISABLED"
     error_message = "schedule_enabled=false must pause cloud runs (FR-051)."
   }
 }
@@ -118,11 +126,11 @@ run "task_definition_settings" {
   }
 
   assert {
-    condition     = aws_ecs_task_definition.pipeline.family == "cloud-pricing-pipeline-prod"
+    condition     = aws_ecs_task_definition.pipeline["aws"].family == "cloud-pricing-pipeline-prod"
     error_message = "Task family must follow constitution V naming."
   }
   assert {
-    condition     = aws_ecs_task_definition.pipeline.runtime_platform[0].cpu_architecture == "ARM64"
+    condition     = aws_ecs_task_definition.pipeline["aws"].runtime_platform[0].cpu_architecture == "ARM64"
     error_message = "The task runs on Graviton (research R1)."
   }
   assert {
@@ -148,4 +156,189 @@ run "claim_ttl_must_exceed_timeout" {
   }
 
   expect_failures = [var.run_claim_ttl_minutes]
+}
+
+# --- feature 004: one task definition and schedule per provider (T045) ------------------
+
+run "three_providers" {
+  command = plan
+
+  override_data {
+    target = data.terraform_remote_state.data
+    values = { outputs = { writer_role_name = null } }
+  }
+
+  variables {
+    pricing_providers = ["aws", "azure", "gcp"]
+    provider_runs = {
+      aws = {
+        locations           = ["us-east-1", "us-east-2"]
+        schedule_expression = "cron(0 13 ? * MON *)"
+        schedule_enabled    = true
+        task_cpu            = 1024
+        task_memory         = 8192
+      }
+      azure = {
+        locations           = ["eastus", "north-america"]
+        schedule_expression = "cron(0 13 ? * MON *)"
+        schedule_enabled    = false
+        task_cpu            = 1024
+        task_memory         = 2048
+      }
+      gcp = {
+        locations           = ["us-east1"]
+        schedule_expression = "cron(0 13 ? * MON *)"
+        schedule_enabled    = false
+        task_cpu            = 1024
+        task_memory         = 2048
+        api_key_parameter   = "/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key"
+      }
+    }
+  }
+
+  assert {
+    condition     = length(aws_ecs_task_definition.pipeline) == 3 && length(aws_scheduler_schedule.weekly) == 3
+    error_message = "One task definition and one schedule per provider."
+  }
+  assert {
+    condition = (
+      aws_ecs_task_definition.pipeline["aws"].family == "cloud-pricing-pipeline-prod" &&
+      aws_ecs_task_definition.pipeline["azure"].family == "cloud-pricing-pipeline-azure-prod" &&
+      aws_ecs_task_definition.pipeline["gcp"].family == "cloud-pricing-pipeline-gcp-prod" &&
+      aws_scheduler_schedule.weekly["aws"].name == "cloud-pricing-pipeline-prod"
+    )
+    error_message = "AWS keeps its feature-003 names; new providers add theirs."
+  }
+  assert {
+    condition = (
+      aws_scheduler_schedule.weekly["aws"].state == "ENABLED" &&
+      aws_scheduler_schedule.weekly["azure"].state == "DISABLED" &&
+      aws_scheduler_schedule.weekly["gcp"].state == "DISABLED"
+    )
+    error_message = "Azure and GCP ship with their schedules disabled (FR-033)."
+  }
+  assert {
+    condition = (
+      local.provider_environment["azure"]["PIPELINE_PROVIDER"] == "azure" &&
+      local.provider_environment["azure"]["PRICING_REGIONS"] == "eastus,north-america" &&
+      local.provider_environment["gcp"]["PIPELINE_PROVIDER"] == "gcp" &&
+      !contains(keys(local.provider_environment["aws"]), "PIPELINE_PROVIDER") &&
+      local.provider_environment["aws"]["PRICING_REGIONS"] == "us-east-1,us-east-2"
+    )
+    error_message = "Each task gets its provider and locations; the AWS environment is unchanged."
+  }
+  assert {
+    condition = alltrue([
+      for p, env in local.provider_environment : !anytrue([for k, v in env : strcontains(k, "API_KEY")])
+    ])
+    error_message = "No key is ever a plain environment variable."
+  }
+  assert {
+    condition     = strcontains(aws_ecs_task_definition.pipeline["gcp"].container_definitions, "\"secrets\":[{\"name\":\"GCP_PRICING_API_KEY\",\"valueFrom\":\"arn:aws:ssm:us-east-1:123456789012:parameter/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key\"}]")
+    error_message = "The GCP task gets the key from the SSM parameter by ARN."
+  }
+  assert {
+    condition = (
+      !strcontains(aws_ecs_task_definition.pipeline["aws"].container_definitions, "secrets") &&
+      !strcontains(aws_ecs_task_definition.pipeline["azure"].container_definitions, "secrets")
+    )
+    error_message = "Only the GCP task definition has secrets (FR-008)."
+  }
+  assert {
+    condition = (
+      toset(keys(jsondecode(aws_ecs_task_definition.pipeline["aws"].container_definitions)[0])) ==
+      toset(["name", "image", "essential", "command", "environment", "logConfiguration"])
+    )
+    error_message = "The AWS container definition keeps its feature-003 shape, so moving it to [\"aws\"] replaces nothing (SC-008)."
+  }
+  assert {
+    condition = (
+      length(aws_iam_role.execution_gcp) == 1 &&
+      aws_iam_role.execution_gcp[0].name == "cloud-pricing-task-execution-gcp-prod"
+    )
+    error_message = "GCP gets its own execution role."
+  }
+  assert {
+    condition = (
+      data.aws_iam_policy_document.execution_gcp_key[0].statement[0].actions == toset(["ssm:GetParameters"]) &&
+      data.aws_iam_policy_document.execution_gcp_key[0].statement[0].resources == toset(["arn:aws:ssm:us-east-1:123456789012:parameter/cloud-pricing-data-retrieval/prod/gcp-pricing-api-key"])
+    )
+    error_message = "The GCP execution role may read that one parameter and nothing else."
+  }
+  assert {
+    condition     = length(aws_iam_role_policy_attachment.execution_gcp) == 1
+    error_message = "The GCP execution role still has the standard execution policy."
+  }
+  assert {
+    condition = length([
+      for g in jsondecode(aws_cloudwatch_event_rule.task_crashed.event_pattern).detail.group : g
+      if contains(["family:cloud-pricing-pipeline-prod", "family:cloud-pricing-pipeline-azure-prod", "family:cloud-pricing-pipeline-gcp-prod"], g)
+    ]) == 3
+    error_message = "TASK CRASHED covers every provider's task family (FR-026)."
+  }
+  assert {
+    condition     = aws_lambda_function.watchdog.environment[0].variables["PROVIDERS"] == "aws"
+    error_message = "The watchdog checks only providers that are scheduled."
+  }
+}
+
+run "aws_only_has_no_gcp_role" {
+  command = plan
+
+  override_data {
+    target = data.terraform_remote_state.data
+    values = { outputs = { writer_role_name = null } }
+  }
+
+  assert {
+    condition     = length(aws_iam_role.execution_gcp) == 0 && length(aws_ecs_task_definition.pipeline) == 1
+    error_message = "Without gcp in provider_runs there is no GCP role or task."
+  }
+}
+
+run "api_key_parameter_only_for_gcp" {
+  command = plan
+
+  override_data {
+    target = data.terraform_remote_state.data
+    values = { outputs = { writer_role_name = null } }
+  }
+
+  variables {
+    provider_runs = {
+      azure = {
+        locations           = ["eastus"]
+        schedule_expression = "cron(0 13 ? * MON *)"
+        schedule_enabled    = false
+        task_cpu            = 1024
+        task_memory         = 2048
+        api_key_parameter   = "/cloud-pricing-data-retrieval/prod/azure-key"
+      }
+    }
+  }
+
+  expect_failures = [var.provider_runs]
+}
+
+run "gcp_requires_api_key_parameter" {
+  command = plan
+
+  override_data {
+    target = data.terraform_remote_state.data
+    values = { outputs = { writer_role_name = null } }
+  }
+
+  variables {
+    provider_runs = {
+      gcp = {
+        locations           = ["us-east1"]
+        schedule_expression = "cron(0 13 ? * MON *)"
+        schedule_enabled    = false
+        task_cpu            = 1024
+        task_memory         = 2048
+      }
+    }
+  }
+
+  expect_failures = [var.provider_runs]
 }

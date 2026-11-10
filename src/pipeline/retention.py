@@ -46,7 +46,7 @@ def _add_months(day: dt.date, months: int) -> dt.date:
 
 def _parquet_dates(store: Storage, provider: str) -> Set[str]:
     dates = set()
-    for table in layout.TABLES:
+    for table in layout.tables_for(provider):
         for obj in store.list(layout.parquet_table_prefix(provider, table)):
             for part in obj.key.split("/"):
                 if part.startswith("snapshot_date="):
@@ -60,7 +60,7 @@ def _raw_date(provider: str, key: str) -> str:
 
 
 def _date_files(store: Storage, provider: str, date: str):
-    for table in layout.TABLES:
+    for table in layout.tables_for(provider):
         yield from store.list(layout.parquet_date_prefix(provider, table, date))
 
 
@@ -194,6 +194,10 @@ def apply_retention(
     if waits:
         remaining = max((m.parse_iso(i["eligible_at"]) - now).total_seconds() for i in waits)
         if remaining > 0:
+            logger.info(
+                f"retention: waiting {remaining:.0f}s for the grace period before deleting "
+                f"{len(waits)} superseded file(s)"
+            )
             sleep(remaining)
             result["waited_seconds"] = remaining
 

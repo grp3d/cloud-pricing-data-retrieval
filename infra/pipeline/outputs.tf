@@ -3,7 +3,12 @@ output "ecs_cluster_arn" {
 }
 
 output "task_definition_family" {
-  value = aws_ecs_task_definition.pipeline.family
+  description = "The AWS provider's family (unchanged name; run-pipeline derives the others from it)."
+  value       = local.task_families["aws"]
+}
+
+output "task_definition_families" {
+  value = local.task_families
 }
 
 output "subnet_ids" {

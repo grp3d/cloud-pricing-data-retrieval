@@ -92,7 +92,14 @@ class Notifier:
             lines.append("")
             lines.append(detail)
         body = "\n".join(lines) + "\n---\n" + json.dumps({"run_report": r}, sort_keys=True, default=str)
-        return subject, body
+        return self._redact(subject), self._redact(body)
+
+    def _redact(self, text: str) -> str:
+        """Secrets never reach an alert (FR-006, SC-006)."""
+        secret_values = getattr(self.settings, "secret_values", None)
+        for secret in secret_values() if callable(secret_values) else []:
+            text = text.replace(secret, "***")
+        return text
 
     def send(self, kind: str, report, detail: Optional[str] = None) -> bool:
         subject, body = self.format(kind, report, detail)

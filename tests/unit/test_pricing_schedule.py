@@ -13,7 +13,7 @@ import datetime as dt  # noqa: E402
 
 from dagster import build_op_context, build_schedule_context  # noqa: E402
 
-from src.aws_regions import resolve_regions  # noqa: E402
+from src.aws.regions import resolve_regions  # noqa: E402
 from src.dagster_app.assets.pricing_assets import SnapshotRunConfig, run_pricing_snapshot  # noqa: E402
 from src.dagster_app.resources import PricingRegionsResource  # noqa: E402
 from src.dagster_app.schedules.pricing_schedules import pricing_weekly_schedule  # noqa: E402

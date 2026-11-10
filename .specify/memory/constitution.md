@@ -1,19 +1,26 @@
 <!--
 Sync Impact Report
-- Version change: 1.1.0 → 1.1.1 (PATCH: scope clarifications, no principle added or removed)
+- Version change: 1.2.0 → 1.3.0 (MINOR: materially expanded guidance; no principle removed or
+  redefined)
 - Modified principles:
-  - V. Reproducible, Cost-Bounded Operations: the environment-namespacing rule now defines
-    "account singletons" (IaC state bucket, GitHub OIDC provider, account budget) as the only
-    exception. They are named `cloud-pricing-shared-*` and tagged `environment=shared`.
+  - VI. Provider-Extensible, Production-Gated: added code-organization rules for provider-specific
+    logic: provider-neutral shared code, base classes with overridable methods, one package per
+    provider with files named after the shared module they extend, one-way imports, and an
+    automated test that enforces them.
+  - VII. Simplicity & YAGNI: clarified that base classes required by Principle VI are not a
+    speculative multi-provider framework.
 - Modified sections:
-  - Technical Constraints → Stack changes: lists the approved AWS service baseline, established
-    by feature 003
-- Trigger: /speckit-analyze findings C1 (CRITICAL) and U2 on specs/003-pipeline-cloud-deployment
-- Previous amendment (1.1.0): principles VI and VII adopted from cloud-pricing-app; faithful
-  transformation added to I; test-first added to IV; review checklist and analyze gate added
+  - Development Workflow → Review checklist: VI now includes the code-organization rules.
+- Added sections: none. Removed sections: none.
+- Trigger: specs/004-add-azure-gcp-pricing (shared paging logic, `src/pipeline/http_pages.py`,
+  needs per-provider variations for Azure and GCP).
 - Templates checked (read at runtime, not modified): plan-template.md ✅, spec-template.md ✅,
-  tasks-template.md ✅
-- Deferred TODOs: none
+  tasks-template.md ✅, checklist-template.md ✅
+- Resolved TODO from 1.2.0: the feature 003 four-week unattended check (validation.md, B9) was
+  recorded on 2026-10-30.
+- Follow-up (outside the constitution): existing code doesn't comply yet. `src/pipeline/runner.py`,
+  `downloader.py`, `config.py` and `manifest.py` import AWS modules directly, and the AWS modules
+  sit at `src/aws_*.py`. Feature 004 moves them to `src/aws/`.
 -->
 
 # Cloud Pricing Data Retrieval Constitution
@@ -75,24 +82,55 @@ Business logic (downloading, transforming, publishing, retention) MUST live in p
 - Compute MUST be pay-per-use, with no always-on servers or gateways, unless an amendment justifies them.
 - The whole project MUST stay within its budget (normally $15–20/month, with a hard cap of $30/month), enforced by an account budget alert. Every new paid resource MUST have its monthly cost estimated in the plan.
 - Credentials MUST be short-lived: OIDC for CI, IAM roles in AWS, and Roles Anywhere outside AWS. Long-lived access keys MUST NOT be created.
+- The only exception is a credential for a third-party pricing source that the source issues only as a static key (for example, the GCP Cloud Billing API key). Such a key MUST be restricted at the source to the pricing API, stored as an encrypted parameter in SSM Parameter Store, readable only by that provider's run, and rotatable without a redeploy.
 - Every resource MUST be namespaced by environment (`dev`, `qa`, `prod`) and tagged for cost attribution. The only exceptions are **account singletons**: resources that can exist only once per AWS account and serve every environment. These are the IaC state bucket, the GitHub OIDC identity provider and the account budget. They MUST be named `cloud-pricing-shared-*` where naming allows, and tagged `environment=shared`. Any other per-account singleton requires an amendment.
 - Production changes MUST go through CI with a manual approval.
 
 **Rationale**: this is a personal project with a fixed budget. Reproducibility and cost limits keep it cheap to run, safe to rebuild, and able to recover without memory of past manual steps.
 
-### VI. Provider-Extensible, AWS First
+### VI. Provider-Extensible, Production-Gated
 
-AWS is implemented first. No other provider is implemented until the AWS pipeline works end to end in production.
+Providers are added one at a time, each only after the existing pipeline works end to end in
+production. AWS met this gate with feature 003 (release `v0.0.1`, scheduled in `prod`); Azure and
+GCP are the next providers.
 
-- The provider MUST still be an explicit, modeled dimension: a storage-layout segment, a manifest field and a configuration value. It MUST NOT be an implicit assumption baked into shared module names, contract field names or infrastructure resource names.
-- Code that is inherently provider-specific (pricing API clients, source parsers, per-provider table models) MUST be named and located as such, so adding a provider means adding modules, not rewriting shared ones.
+- The provider MUST be an explicit, modeled dimension: a storage-layout segment, a manifest field
+  and a configuration value. It MUST NOT be an implicit assumption baked into shared module names,
+  contract field names or infrastructure resource names.
+- Code that is inherently provider-specific (pricing API clients, source parsers, per-provider
+  table models) MUST be named and located as such, so adding a provider means adding modules, not
+  rewriting shared ones.
+- Code MUST be organized so shared logic is written once and provider-specific logic is easy to
+  find and change:
+  1. Shared code under `src/pipeline/` MUST be provider-neutral. It MUST NOT name a provider or
+     branch on one (`if provider == ...`). The single exception is `src/pipeline/providers.py`, the
+     registry that maps each provider name to its classes.
+  2. Where providers vary, a shared module MUST expose the variation as a base class with small
+     overridable methods. The base class holds the logic every provider shares.
+  3. Provider-specific code MUST live in a package per provider, `src/<provider>/` (for example
+     `src/aws/`, `src/azure/`, `src/gcp/`). A file that extends a shared module MUST have the same
+     name as that module: `src/pipeline/http_pages.py` is extended by
+     `src/<provider>/http_pages.py`. A provider with no custom behavior uses the base class
+     directly; empty subclass files MUST NOT be created.
+  4. Imports MUST go one way. Provider packages may import `src/pipeline/`. `src/pipeline/` imports
+     provider packages only through `providers.py`. Provider packages MUST NOT import each other.
+  5. An automated test MUST enforce rules 1 and 4 by scanning imports and provider names under
+     `src/`, so a violation fails CI rather than relying on review.
+- Each provider MUST have its own data model, documented as a contract, with its own table schema
+  versions. Adding or changing one provider MUST NOT change another provider's tables, schema
+  versions or published data.
+- Each provider MUST run as its own snapshot, with its own run claim, manifest, `latest.json`,
+  schedule, retention and alerts. A failure or outage of one provider's source MUST NOT block,
+  delay or change another provider's snapshot.
 
-**Rationale**: GCP and Azure are known future needs. Careful naming and modeling now makes them an extension rather than a migration, without writing multi-cloud code today.
+**Rationale**: every provider's history is irreplaceable on its own. Isolating providers keeps one
+source's outage from costing another provider's week, and the production gate keeps the project
+from widening before what exists is proven.
 
 ### VII. Simplicity & YAGNI
 
 - Choose the simplest design that meets the current requirement.
-- Do not build generalized multi-provider frameworks, plugin systems, speculative configuration or extra services ahead of a concrete need. Principle VI's modeling discipline is sufficient protection.
+- Do not build generalized multi-provider frameworks, plugin systems, speculative configuration or extra services ahead of a concrete need. Principle VI's modeling discipline is sufficient protection. The base classes that Principle VI's code-organization rules require are not such a framework: one is added only when a shared module has a concrete variation between providers.
 - New complexity (a new stack, service, data store, abstraction layer or paid resource) MUST be justified by a current requirement. It MUST be recorded in the plan's "Complexity Tracking", together with the simpler alternative that was rejected.
 
 **Rationale**: principles I–V demand real rigor, around data safety, the contract and cost. Everything beyond that rigor is cost without present value.
@@ -100,11 +138,11 @@ AWS is implemented first. No other provider is implemented until the AWS pipelin
 ## Technical Constraints
 
 - **Language and data**: Python (currently 3.14) and Parquet for tables. Raw source files are stored compressed. Each cloud provider has its own data model, with no shared cross-cloud pricing schema.
-- **Cloud and delivery**: AWS, with OpenTofu/Terraform for infrastructure, Docker images as the packaging standard (the same image in the cloud and locally), and GitHub Actions for CI/CD.
+- **Cloud and delivery**: AWS hosts the pipeline for every provider. Azure and GCP prices are read from their public pricing APIs only; no Azure or GCP account resources are created. Delivery uses OpenTofu/Terraform for infrastructure, Docker images as the packaging standard (the same image in the cloud and locally), and GitHub Actions for CI/CD.
 - **Integration**: the pipeline and `cloud-pricing-app` are separate repos. Their only integration point is the published manifest and data in storage. The pipeline never writes to the app's database.
 - **Local development**: the pipeline MUST remain runnable on a laptop against a local directory. The only external dependency is the provider pricing API.
-- **Stack changes**: introducing a new language, data format, data store, cloud provider service category or orchestration platform (for example, Kubernetes) requires a constitution amendment, not a choice made inside a feature branch. The approved AWS service baseline (established by feature 003) is: S3, ECS Fargate, ECR, EventBridge (Scheduler and rules), Lambda, SNS, SQS, CloudWatch (Logs and alarms), IAM (including IAM Roles Anywhere), AWS Budgets and VPC networking without NAT gateways. Using a service outside this list requires an amendment.
-- **Security**: the data store blocks public access and is encrypted at rest. Readers get read-only access. Secrets and personal data (for example, alert email addresses) are supplied through CI secrets or variables and are never committed.
+- **Stack changes**: introducing a new language, data format, data store, cloud provider service category or orchestration platform (for example, Kubernetes) requires a constitution amendment, not a choice made inside a feature branch. The approved AWS service baseline (established by feature 003) is: S3, ECS Fargate, ECR, EventBridge (Scheduler and rules), Lambda, SNS, SQS, CloudWatch (Logs and alarms), IAM (including IAM Roles Anywhere), AWS Budgets, VPC networking without NAT gateways, and SSM Parameter Store (standard tier, SecureString parameters, only for third-party pricing-source credentials; added by feature 004). Using a service outside this list requires an amendment.
+- **Security**: the data store blocks public access and is encrypted at rest. Readers get read-only access. Secrets and personal data (for example, alert email addresses) are supplied through CI secrets or variables and are never committed. Third-party pricing-source credentials are supplied locally through a git-ignored environment file and in the cloud from SSM Parameter Store (Principle V). Their values MUST NOT appear in IaC state, task definitions, images, logs, alerts or published data.
 
 ## Development Workflow
 
@@ -117,7 +155,7 @@ AWS is implemented first. No other provider is implemented until the AWS pipelin
   - III: logic stays out of wrappers, and nothing is hard-coded.
   - IV: tests exist, and test-first was followed where it's required.
   - V: infrastructure is code only, costs are estimated, and there are no long-lived credentials.
-  - VI: the provider is modeled explicitly.
+  - VI: the provider is modeled explicitly, providers stay isolated from each other, shared code is provider-neutral, and provider code sits in its own package with the import rules passing.
   - VII: no unjustified complexity.
 - **Analyze gate**: specs, plans and tasks are checked against this constitution by `/speckit-analyze`. Unresolved conflicts block `/speckit-implement`.
 - **Contract changes**: changes to the manifest, pointer or table schemas require a version bump in the contract, updated schema files under the feature's `contracts/`, and a note for `cloud-pricing-app`.
@@ -134,4 +172,4 @@ AWS is implemented first. No other provider is implemented until the AWS pipelin
 - **Compliance**: the Constitution Check in `/speckit-plan` is the main gate, and `/speckit-analyze` re-checks alignment before implementation. Reviewers verify compliance on every pull request. Unjustified violations block merging.
 - **Review**: revisit the constitution when a new provider (GCP or Azure), environment, or consumer is added. Keep it aligned with the sibling `cloud-pricing-app` constitution on the shared concerns: pricing data integrity, provider extensibility, and simplicity.
 
-**Version**: 1.1.1 | **Ratified**: 2026-09-28 | **Last Amended**: 2026-09-28
+**Version**: 1.3.0 | **Ratified**: 2026-09-28 | **Last Amended**: 2026-10-30

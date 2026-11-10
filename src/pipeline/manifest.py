@@ -6,20 +6,25 @@ Each revision is immutable (`revisions/<NNNN>.json`) and the highest one is copi
 `manifest.json`. A new revision starts from the current one and replaces only the
 regions that succeeded in this run, so a snapshot's data — and therefore its status —
 never regresses (research R6).
+
+Version 1.1 (feature 004) takes table names and schema versions from the provider's spec
+and adds optional per-location counters, a GCP `catalog` block and Azure
+`excluded_price_types`. Optional fields are omitted when unset, so AWS manifests differ
+from 1.0 only in `manifest_version`.
 """
 
 import datetime as dt
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Dict, List, Optional, Set
 
-from src.aws_pricing_transformations import TABLE_SCHEMA_VERSIONS
-from src.pipeline import layout
+from src.pipeline import layout, providers
 from src.pipeline.storage import PreconditionFailed, Storage
 
-MANIFEST_VERSION = "1.0"
-TABLES = layout.TABLES
+MANIFEST_VERSION = "1.1"
 MAX_REASON = 500
+# Optional per-location counters (1.1); serialized only when set.
+REGION_COUNTERS = ("items_received", "duplicates_removed", "unlocated_rows", "throttled_responses", "requests_made")
 
 
 class RevisionExists(Exception):
@@ -87,6 +92,34 @@ class RegionResult:
     services_downloaded: int = 0
     services_without_price_list: int = 0
     unparseable_prices: int = 0
+    items_received: Optional[int] = None
+    duplicates_removed: Optional[int] = None
+    unlocated_rows: Optional[int] = None
+    throttled_responses: Optional[int] = None
+    requests_made: Optional[int] = None
+
+
+@dataclass
+class CatalogInfo:
+    """Counters for a catalog-wide download (GCP; FR-031, FR-034)."""
+
+    api_version: str
+    requests_made: int = 0
+    skus_received: int = 0
+    throttled_responses: Optional[int] = None
+    skus_out_of_scope: Optional[int] = None
+    skus_unconfigured_locations: Optional[int] = None
+    skus_unlocated: Optional[int] = None
+    skus_without_price: Optional[int] = None
+    prices_without_sku: Optional[int] = None
+
+    def to_dict(self) -> dict:
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CatalogInfo":
+        names = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in d.items() if k in names})
 
 
 @dataclass
@@ -118,6 +151,8 @@ class Manifest:
     raw: Optional[Dict[str, RawEntry]]
     tables: Dict[str, TableEntry]
     purged: Optional[Dict[str, str]]
+    catalog: Optional[CatalogInfo] = None
+    excluded_price_types: Optional[List[str]] = None
 
     # -- serialization --
 
@@ -133,9 +168,12 @@ class Manifest:
             }
             if r.reason is not None:
                 d["reason"] = r.reason
+            for name in REGION_COUNTERS:
+                if getattr(r, name) is not None:
+                    d[name] = getattr(r, name)
             return d
 
-        return {
+        doc = {
             "manifest_version": self.manifest_version,
             "provider": self.provider,
             "snapshot_date": self.snapshot_date,
@@ -199,6 +237,11 @@ class Manifest:
             },
             "purged": dict(self.purged) if self.purged is not None else None,
         }
+        if self.catalog is not None:
+            doc["catalog"] = self.catalog.to_dict()
+        if self.excluded_price_types:
+            doc["excluded_price_types"] = list(self.excluded_price_types)
+        return doc
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, indent=2) + "\n"
@@ -235,6 +278,7 @@ class Manifest:
                         services_downloaded=r.get("services_downloaded", 0),
                         services_without_price_list=r.get("services_without_price_list", 0),
                         unparseable_prices=r.get("unparseable_prices", 0),
+                        **{name: r.get(name) for name in REGION_COUNTERS},
                     )
                     for r in run["region_results"]
                 ],
@@ -258,6 +302,8 @@ class Manifest:
                 for name, t in d["tables"].items()
             },
             purged=dict(d["purged"]) if d["purged"] is not None else None,
+            catalog=CatalogInfo.from_dict(d["catalog"]) if d.get("catalog") else None,
+            excluded_price_types=list(d["excluded_price_types"]) if d.get("excluded_price_types") else None,
         )
 
     @classmethod
@@ -280,6 +326,11 @@ class RegionOutcome:
     unparseable_prices: int = 0
     tables: Optional[Dict[str, RegionTableEntry]] = None
     raw: Optional[RawEntry] = None
+    items_received: Optional[int] = None
+    duplicates_removed: Optional[int] = None
+    unlocated_rows: Optional[int] = None
+    throttled_responses: Optional[int] = None
+    requests_made: Optional[int] = None
 
     def to_result(self) -> RegionResult:
         return RegionResult(
@@ -290,6 +341,7 @@ class RegionOutcome:
             services_downloaded=self.services_downloaded,
             services_without_price_list=self.services_without_price_list,
             unparseable_prices=self.unparseable_prices,
+            **{name: getattr(self, name) for name in REGION_COUNTERS},
         )
 
 
@@ -339,7 +391,12 @@ def build_revision(
     created_at: dt.datetime,
     origin: str = "pipeline",
     revision: Optional[int] = None,
+    raw: Optional[Dict[str, RawEntry]] = None,
+    catalog: Optional[CatalogInfo] = None,
+    excluded_price_types: Optional[List[str]] = None,
 ) -> Manifest:
+    """`raw` adds raw entries for units that aren't locations (the GCP `catalog`)."""
+    unit_raw = dict(raw or {})
     carry = previous is not None and previous.status != "purged"
 
     region_tables: Dict[str, Dict[str, RegionTableEntry]] = {}
@@ -362,6 +419,7 @@ def build_revision(
                 raw[outcome.region] = outcome.raw
         else:
             this_run_failures[outcome.region] = outcome
+    raw.update(unit_raw)
 
     regions_with_data = {r for r, tables in region_tables.items() if tables and r in requested}
     ordered_requested = sorted(requested)
@@ -381,14 +439,14 @@ def build_revision(
 
     tables: Dict[str, TableEntry] = {}
     if regions_with_data:
-        for name in TABLES:
+        for name, version in providers.get_provider(provider).tables.items():
             regions = {
                 region: region_tables[region][name]
                 for region in sorted(regions_with_data)
                 if name in region_tables[region]
             }
             tables[name] = TableEntry(
-                schema_version=TABLE_SCHEMA_VERSIONS[name],
+                schema_version=version,
                 row_count=sum(r.row_count for r in regions.values()),
                 regions=regions,
             )
@@ -409,9 +467,14 @@ def build_revision(
         succeeded=sorted(regions_with_data),
         failed=failed,
         run=run_info,
-        raw=None if origin == "backfill" else {r: raw[r] for r in sorted(regions_with_data) if r in raw},
+        # Location entries only for locations with data; unit entries (e.g. `catalog`) always.
+        raw=None
+        if origin == "backfill"
+        else {u: raw[u] for u in sorted(raw) if u in regions_with_data or u not in requested},
         tables=tables,
         purged=None,
+        catalog=catalog,
+        excluded_price_types=list(excluded_price_types) if excluded_price_types else None,
     )
 
 

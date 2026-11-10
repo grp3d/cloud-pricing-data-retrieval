@@ -591,7 +591,7 @@ For those, the test task comes first and MUST fail before the implementation tas
 - [X] T096 Run the full `pytest` suite and fix any failures. Run `tofu fmt -check -recursive infra/` and `validate` on all stacks.
 - [X] T097 Run quickstart Part A (A1–A9) locally and record the outcomes in `specs/003-pipeline-cloud-deployment/checklists/validation.md`.
 - [X] T098 Go through the constitution v1.1.0 review checklist (Development Workflow → "Review checklist", principles I–VII) for the whole change set, and record the results in `specs/003-pipeline-cloud-deployment/checklists/validation.md`.
-- [ ] T099 After deployment, run quickstart Parts B and C (B1–B9, C1–C5) and record them in `specs/003-pipeline-cloud-deployment/checklists/validation.md`. SC-001 (4 weeks) and SC-010 are confirmed after the observation period.
+- [x] T099 After deployment, run quickstart Parts B and C (B1–B9, C1–C5) and record them in `specs/003-pipeline-cloud-deployment/checklists/validation.md`. SC-001 (4 weeks) and SC-010 are confirmed after the observation period.
 
 ---
 

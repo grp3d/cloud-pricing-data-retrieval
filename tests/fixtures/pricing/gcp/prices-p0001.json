@@ -1,0 +1,400 @@
+{
+ "prices": [
+  {
+   "name": "skus/BB77-5FDA-69D9/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/70D7-D1AB-12A4",
+     "consumptionModelDescription": "Compute Flexible CUD - 3 Year",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 17069940
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "h",
+       "unitDescription": "hour",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    },
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 31611000
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "h",
+       "unitDescription": "hour",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    },
+    {
+     "consumptionModel": "consumptionModels/D97B-0795-975B",
+     "consumptionModelDescription": "Compute Flexible CUD - 1 Year",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 22759920
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "h",
+       "unitDescription": "hour",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "skus/5B01-D157-A097/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/70D7-D1AB-12A4",
+     "consumptionModelDescription": "Compute Flexible CUD - 3 Year",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 2287980
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "GiBy.h",
+       "unitDescription": "gibibyte hour",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    },
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 4237000
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "GiBy.h",
+       "unitDescription": "gibibyte hour",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    },
+    {
+     "consumptionModel": "consumptionModels/D97B-0795-975B",
+     "consumptionModelDescription": "Compute Flexible CUD - 1 Year",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 3050640
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "GiBy.h",
+       "unitDescription": "gibibyte hour",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "skus/0002-C3CC-1713/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD"
+        }
+       },
+       {
+        "startAmount": {
+         "value": "10"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 22000000
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "GiBy.mo",
+       "unitDescription": "gibibyte month",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "skus/0009-6F35-3126/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 190000000
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "GiBy",
+       "unitDescription": "gibibyte",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "skus/2D3F-8043-D389/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 41600000
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "GiBy.h",
+       "unitDescription": "gibibyte hour",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "skus/0003-CFD5-F4DB/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "units": "20"
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "yr",
+       "unitDescription": "year",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "skus/00CC-93E2-6DC7/price",
+   "currencyCode": "USD",
+   "skuPrices": [
+    {
+     "consumptionModel": "consumptionModels/7754-699E-0EBF",
+     "consumptionModelDescription": "Default",
+     "valueType": "rate",
+     "rate": {
+      "tiers": [
+       {
+        "startAmount": {
+         "value": "0"
+        },
+        "listPrice": {
+         "currencyCode": "USD"
+        }
+       },
+       {
+        "startAmount": {
+         "value": "10"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 190000000
+        }
+       },
+       {
+        "startAmount": {
+         "value": "1024"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 180000000
+        }
+       },
+       {
+        "startAmount": {
+         "value": "10240"
+        },
+        "listPrice": {
+         "currencyCode": "USD",
+         "nanos": 150000000
+        }
+       }
+      ],
+      "unitInfo": {
+       "unit": "GiBy",
+       "unitDescription": "gibibyte",
+       "unitQuantity": {
+        "value": "1"
+       }
+      },
+      "aggregationInfo": {
+       "level": "LEVEL_ACCOUNT",
+       "interval": "INTERVAL_MONTHLY"
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "nextPageToken": "fixture-prices-p0002"
+}

@@ -29,7 +29,7 @@ def settings(store):
 
 def legacy_tree(root, date=DATE, regions=REGIONS, rows=3):
     """Pre-feature-003 layout: <root>/pricing_aws/parquet/<table>/snapshot_date=D/region=R/part-0.parquet."""
-    for table in layout.TABLES:
+    for table in layout.tables_for("aws"):
         for region in regions:
             d = os.path.join(root, "pricing_aws", "parquet", table, f"snapshot_date={date}", f"region={region}")
             os.makedirs(d, exist_ok=True)
@@ -57,7 +57,7 @@ def test_legacy_snapshot_gets_generated_manifest(store, tmp_path):
     assert man.raw is None
     assert man.requested == REGIONS and man.succeeded == REGIONS
     assert man.status == "succeeded" and man.revision == 1
-    for table in layout.TABLES:
+    for table in layout.tables_for("aws"):
         for region in REGIONS:
             (f,) = man.tables[table].regions[region].files
             assert f.path == layout.parquet_file_key("aws", table, DATE, region, man.run_id)
@@ -191,7 +191,7 @@ def test_dry_run_writes_nothing(store, tmp_path):
     result = upload(store, legacy_tree(tmp_path / "data"), dry_run=True)
     assert result["outcome"] == "dry-run"
     assert result["manifest"]["origin"] == "backfill"
-    assert len(result["files"]) == len(layout.TABLES) * len(REGIONS)
+    assert len(result["files"]) == len(layout.tables_for("aws")) * len(REGIONS)
     assert list(store.list("")) == []
 
 

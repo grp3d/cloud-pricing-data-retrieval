@@ -45,8 +45,10 @@ def test_parse_revision_key():
     assert layout.parse_revision_key("aws/manifests/2026-10-05/manifest.json") is None
 
 
-def test_tables_constant():
-    assert layout.TABLES == ("service_dim", "product_dim", "product_attribute", "region_dim", "price_fact")
+def test_tables_come_from_the_provider():
+    assert layout.tables_for("aws") == ("service_dim", "product_dim", "product_attribute", "region_dim", "price_fact")
+    assert layout.tables_for("azure") == ("price_item", "price_item_savings_plan")
+    assert layout.tables_for("gcp") == ("service", "sku", "sku_price", "sku_price_tier")
 
 
 def test_new_run_id_format_and_sortable():
@@ -72,3 +74,41 @@ def test_new_run_id_format_and_sortable():
 def test_malformed_inputs_rejected(call):
     with pytest.raises(ValueError):
         call()
+
+
+# --- feature 004: locations and per-provider tables (T013) ----------------------------
+
+
+@pytest.mark.parametrize("location", ["eastus", "us-east-1", "us-east1", "north-america", "us", "eu", "global"])
+def test_locations_accepted(location):
+    assert layout.validate_region(location) == location
+
+
+@pytest.mark.parametrize("location", ["East US", "-x", "a_b", "", "x-", "US"])
+def test_locations_rejected(location):
+    with pytest.raises(ValueError):
+        layout.validate_region(location)
+
+
+def test_new_provider_parquet_keys():
+    assert layout.parquet_file_key("azure", "price_item", "2026-10-05", "eastus", RUN) == (
+        f"azure/parquet/price_item/snapshot_date=2026-10-05/region=eastus/part-{RUN}.parquet"
+    )
+    assert layout.parquet_file_key("gcp", "sku_price_tier", "2026-10-05", "global", RUN) == (
+        f"gcp/parquet/sku_price_tier/snapshot_date=2026-10-05/region=global/part-{RUN}.parquet"
+    )
+
+
+@pytest.mark.parametrize(
+    "provider,table", [("azure", "price_fact"), ("aws", "sku"), ("gcp", "price_item"), ("nope", "sku")]
+)
+def test_table_must_belong_to_the_provider(provider, table):
+    with pytest.raises(ValueError):
+        layout.parquet_table_prefix(provider, table)
+
+
+def test_catalog_raw_keys():
+    assert layout.catalog_raw_prefix("gcp", "2026-10-05", RUN) == f"gcp/raw/2026-10-05/catalog/{RUN}/"
+    assert layout.catalog_raw_file_key("gcp", "2026-10-05", RUN, "skus-p0001.json") == (
+        f"gcp/raw/2026-10-05/catalog/{RUN}/skus-p0001.json.zst"
+    )

@@ -1,5 +1,5 @@
 """
-aws_pricing_transformations: raw price-list JSON → per-region Parquet files in a staging
+src.aws.transformations: raw price-list JSON → per-region Parquet files in a staging
 directory, with per-file stats for the manifest (feature 003, tasks T019; C1, C3).
 
 Also keeps the cross-region row filter from feature 001: AWS's per-region price list is
@@ -14,12 +14,12 @@ import os
 import pandas as pd
 import pyarrow.parquet as pq
 
-from src.aws_pricing_transformations import (
+from src.aws.transformations import (
     TABLE_SCHEMA_VERSIONS,
+    TABLES,
     TransformRequest,
     transform_pricing_to_parquet,
 )
-from src.pipeline.layout import TABLES
 
 FIXTURES = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fixtures", "pricing")
 RUN = "20261005T130004Z-a1b2c3"
