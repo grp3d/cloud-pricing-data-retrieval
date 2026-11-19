@@ -13,9 +13,9 @@ that change stored data end with a run report line.
 | Code | Meaning |
 |---|---|
 | `0` | Completed. Includes `partial` and `failed` snapshots and refused runs, which are reported by alert, not exit code. |
-| `1` | `verify` found a mismatch. |
+| `1` | `verify` found a mismatch, or a `download-latest` file failed its sha256 check. |
 | `2` | Invalid settings or arguments (including a missing `GCP_PRICING_API_KEY` for `gcp`). Nothing was changed. |
-| `3` | Precondition not met: `upload-history` target exists without `--overwrite`, `transform-only` raw data is purged, or `raw download` snapshot is missing. Nothing was changed. |
+| `3` | Precondition not met: `upload-history` target exists without `--overwrite`, `transform-only` raw data is purged, `raw download` snapshot is missing, or `download-latest` finds no published snapshot. Nothing was changed. |
 | `124` | Hit `RUN_TIMEOUT_MINUTES`; the process stops after a best-effort `RUN CRASHED` alert. |
 | other | Unhandled crash, after a best-effort `RUN CRASHED` alert. |
 
@@ -66,6 +66,22 @@ Exits 0 if all match, 1 otherwise (mismatches are listed).
 | `--dest PATH` | required | |
 | `--regions a,b` | all in the current manifest | Ignored for GCP (the raw unit is `catalog`). |
 | `--decompress` | off | Write `.json` instead of `.json.zst`. |
+
+## `download-latest`
+
+Copy the snapshot `latest.json` points at from the store to a local directory. Reads the
+store only; it never calls a provider's pricing API.
+
+| Option | Default | Notes |
+|---|---|---|
+| `--dest PATH` | required | A local path or `file://` URI. Other schemes exit 2. |
+
+The copy mirrors the store layout: every Parquet file the manifest lists, then that date's
+`manifest.json`, its revision file and `latest.json`. The destination is therefore a valid
+local store (`PIPELINE_STORAGE_URI=file://<dest>`). Each file is checked against its manifest
+sha256, and files already present with the right hash are skipped. Metadata is written last, so
+an interrupted copy has no `latest.json`. An existing local `latest.json` that names a newer
+snapshot is kept. Every read, download, skip and metadata write is logged as a JSON line. Raw data isn't copied (see `raw download`).
 
 ## `settings`
 

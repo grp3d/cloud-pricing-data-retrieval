@@ -107,7 +107,7 @@ def _split_regions(value):
 
 @click.group(context_settings=dict(help_option_names=["-h", "--help"]))
 def cli():
-    """Cloud pricing pipeline: run, retention, upload-history, raw, verify, settings."""
+    """Cloud pricing pipeline: run, retention, upload-history, raw, download-latest, verify, settings."""
     _configure_logging()
 
 
@@ -283,6 +283,28 @@ def raw_download(snapshot_date, dest, regions, decompress):
         _echo_error(str(e))
         sys.exit(EXIT_PRECONDITION)
     click.echo(json.dumps({"level": "info", "downloaded": len(files), "dest": dest}))
+
+
+@cli.command("download-latest")
+@click.option("--dest", required=True, help="Local directory or file:// URI (mirrors the store layout)")
+def download_latest_cmd(dest):
+    """Copy the latest published snapshot's tables and metadata to a local directory."""
+    from src.pipeline.latest_download import ChecksumMismatch, LatestNotFound, download_latest
+    from src.pipeline.storage import open_storage
+
+    settings = _load_settings()
+    try:
+        result = download_latest(open_storage(settings.storage_uri), settings.provider, dest)
+    except ValueError as e:
+        _echo_error(str(e))
+        sys.exit(EXIT_SETTINGS)
+    except LatestNotFound as e:
+        _echo_error(str(e))
+        sys.exit(EXIT_PRECONDITION)
+    except ChecksumMismatch as e:
+        _echo_error(str(e))
+        sys.exit(1)
+    click.echo(json.dumps({"level": "info", **result.summary()}, sort_keys=True))
 
 
 @cli.command()
