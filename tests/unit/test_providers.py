@@ -61,7 +61,7 @@ def test_default_locations():
         "north-america", "europe", "asia", "intercontinental",
     ]
     assert PROVIDERS["gcp"].locations() == [
-        "us-east1", "us-east4", "us-west1", "us-west2", "europe-west1", "europe-west2", "asia-northeast1",
+        "us-central1", "us-east1", "us-east4", "us-west1", "us-west2", "europe-west1", "europe-west2", "asia-northeast1",
     ]
 
 
