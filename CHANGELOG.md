@@ -3,6 +3,12 @@
 Releases are `vMAJOR.MINOR.PATCH` tags on `main`. Each entry links to the feature's design
 record in `specs/`. Current behavior is documented in [`docs/`](docs/), not here.
 
+## Unreleased
+
+- `download-latest --dest PATH`: copy the latest published snapshot (tables, manifest,
+  revision and `latest.json`) from the store to a local directory, checking each file's sha256.
+- GCP: `us-central1` added to the default and prod locations.
+
 ## v0.1.0 (2026-11-10): Azure and GCP pricing
 
 Feature [004](specs/004-add-azure-gcp-pricing/).

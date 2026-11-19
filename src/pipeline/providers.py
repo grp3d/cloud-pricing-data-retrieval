@@ -87,7 +87,7 @@ PROVIDERS: Dict[str, ProviderSpec] = {
         name="gcp",
         tables={"service": 1, "sku": 1, "sku_price": 1, "sku_price_tier": 1},
         default_locations=(
-            "us-east1", "us-east4", "us-west1", "us-west2", "europe-west1", "europe-west2", "asia-northeast1",
+            "us-central1", "us-east1", "us-east4", "us-west1", "us-west2", "europe-west1", "europe-west2", "asia-northeast1",
         ),
         downloader="src.gcp.downloader:GcpCatalogDownloader",
         transform="src.gcp.transformations:GcpTransform",

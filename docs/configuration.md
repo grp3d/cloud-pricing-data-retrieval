@@ -24,7 +24,7 @@ Default locations:
 |---|---|
 | `aws` | `us-east-1`, `us-east-2`, `us-west-1`, `us-west-2`, `eu-west-1`, `eu-west-2`, `ap-northeast-1` |
 | `azure` | `eastus`, `eastus2`, `westus`, `westus2`, `westeurope`, `uksouth`, `japaneast`, `north-america`, `europe`, `asia`, `intercontinental` (+ `global`) |
-| `gcp` | `us-east1`, `us-east4`, `us-west1`, `us-west2`, `europe-west1`, `europe-west2`, `asia-northeast1` (+ `global`) |
+| `gcp` | `us-central1`, `us-east1`, `us-east4`, `us-west1`, `us-west2`, `europe-west1`, `europe-west2`, `asia-northeast1` (+ `global`) |
 
 ### Downloads, retries and timeouts
 

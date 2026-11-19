@@ -1,26 +1,23 @@
 <!--
 Sync Impact Report
-- Version change: 1.2.0 → 1.3.0 (MINOR: materially expanded guidance; no principle removed or
+- Version change: 1.3.0 → 1.4.0 (MINOR: materially expanded guidance; no principle removed or
   redefined)
-- Modified principles:
-  - VI. Provider-Extensible, Production-Gated: added code-organization rules for provider-specific
-    logic: provider-neutral shared code, base classes with overridable methods, one package per
-    provider with files named after the shared module they extend, one-way imports, and an
-    automated test that enforces them.
-  - VII. Simplicity & YAGNI: clarified that base classes required by Principle VI are not a
-    speculative multi-provider framework.
+- Modified principles: none.
 - Modified sections:
-  - Development Workflow → Review checklist: VI now includes the code-organization rules.
+  - Development Workflow → "Operational docs" renamed to "Documentation": `docs/` holds current
+    behavior and is updated by the feature that changes it; the README is a stable orientation
+    page that doesn't grow per feature; each release adds a `CHANGELOG.md` entry; `specs/<NNN>-*/`
+    is the feature's design and validation record and isn't updated after the feature ships.
+  - Development Workflow → "Contract changes": schema files are updated in
+    `src/pipeline/schemas/`, with `docs/data-contract.md` and a changelog entry; the feature's
+    `contracts/` holds the proposal.
 - Added sections: none. Removed sections: none.
-- Trigger: specs/004-add-azure-gcp-pricing (shared paging logic, `src/pipeline/http_pages.py`,
-  needs per-provider variations for Azure and GCP).
-- Templates checked (read at runtime, not modified): plan-template.md ✅, spec-template.md ✅,
-  tasks-template.md ✅, checklist-template.md ✅
-- Resolved TODO from 1.2.0: the feature 003 four-week unattended check (validation.md, B9) was
-  recorded on 2026-10-30.
-- Follow-up (outside the constitution): existing code doesn't comply yet. `src/pipeline/runner.py`,
-  `downloader.py`, `config.py` and `manifest.py` import AWS modules directly, and the AWS modules
-  sit at `src/aws_*.py`. Feature 004 moves them to `src/aws/`.
+- Trigger: the README restructure of 2026-11-10 (commit 42fe77d), which moved current-state
+  documentation from `specs/003-*` and `specs/004-*` contracts into `docs/`.
+- Templates checked (read at runtime, not modified): plan-template.md, spec-template.md,
+  tasks-template.md, checklist-template.md. None names the README or a docs location, so none
+  conflicts; generated tasks now take their documentation targets from this rule.
+- Deferred TODOs: none.
 -->
 
 # Cloud Pricing Data Retrieval Constitution
@@ -158,8 +155,8 @@ from widening before what exists is proven.
   - VI: the provider is modeled explicitly, providers stay isolated from each other, shared code is provider-neutral, and provider code sits in its own package with the import rules passing.
   - VII: no unjustified complexity.
 - **Analyze gate**: specs, plans and tasks are checked against this constitution by `/speckit-analyze`. Unresolved conflicts block `/speckit-implement`.
-- **Contract changes**: changes to the manifest, pointer or table schemas require a version bump in the contract, updated schema files under the feature's `contracts/`, and a note for `cloud-pricing-app`.
-- **Operational docs**: the README and feature quickstarts MUST stay accurate for running, re-running, recovering and verifying the pipeline.
+- **Contract changes**: changes to the manifest, pointer or table schemas require a version bump in the contract, updated schema files in `src/pipeline/schemas/`, an updated `docs/data-contract.md`, a `CHANGELOG.md` entry, and a note for `cloud-pricing-app`. The feature's `contracts/` holds the proposal.
+- **Documentation**: `docs/` MUST describe current behavior (data contract, CLI, configuration, operations, development) and MUST be updated by the feature that changes it. The README is a stable orientation page (purpose, getting started, deploy checklist, consumers, reference links) and MUST NOT grow per feature. Each release MUST add a `CHANGELOG.md` entry. `specs/<NNN>-*/` records a feature's design and validation and is not updated after the feature ships.
 
 ## Governance
 
@@ -172,4 +169,4 @@ from widening before what exists is proven.
 - **Compliance**: the Constitution Check in `/speckit-plan` is the main gate, and `/speckit-analyze` re-checks alignment before implementation. Reviewers verify compliance on every pull request. Unjustified violations block merging.
 - **Review**: revisit the constitution when a new provider (GCP or Azure), environment, or consumer is added. Keep it aligned with the sibling `cloud-pricing-app` constitution on the shared concerns: pricing data integrity, provider extensibility, and simplicity.
 
-**Version**: 1.3.0 | **Ratified**: 2026-09-28 | **Last Amended**: 2026-10-30
+**Version**: 1.4.0 | **Ratified**: 2026-09-28 | **Last Amended**: 2026-11-10
